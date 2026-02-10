@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: habits-postgres
+    restart: unless-stopped
+    ports:
+      - '5432:5432'
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: habits
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - habits-network
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: habits-api
+    restart: unless-stopped
+    ports:
+      - '3333:3333'
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/habits?schema=public
+      JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key}
+      JWT_EXPIRES_IN: 7d
+    depends_on:
+      - postgres
+    networks:
+      - habits-network
+    volumes:
+      - ./src:/app/src
+      - ./prisma:/app/prisma
+
+volumes:
+  postgres_data:
+
+networks:
+  habits-network:
+    driver: bridge

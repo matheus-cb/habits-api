@@ -1,0 +1,172 @@
+{
+  "_type": "export",
+  "__export_format": 4,
+  "resources": [
+    {
+      "_id": "wrk_habits_api",
+      "_type": "workspace",
+      "name": "Habits API",
+      "description": "API REST para gerenciamento de hábitos"
+    },
+    {
+      "_id": "env_habits_api",
+      "_type": "environment",
+      "name": "Base Environment",
+      "data": {
+        "base_url": "http://localhost:3333/api/v1",
+        "token": ""
+      }
+    },
+    {
+      "_id": "req_register",
+      "_type": "request",
+      "name": "Register",
+      "method": "POST",
+      "url": "{{ _.base_url }}/auth/register",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"name\": \"John Doe\",\n  \"email\": \"john@example.com\",\n  \"password\": \"password123\"\n}"
+      }
+    },
+    {
+      "_id": "req_login",
+      "_type": "request",
+      "name": "Login",
+      "method": "POST",
+      "url": "{{ _.base_url }}/auth/login",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"email\": \"john@example.com\",\n  \"password\": \"password123\"\n}"
+      }
+    },
+    {
+      "_id": "req_me",
+      "_type": "request",
+      "name": "Get Profile",
+      "method": "GET",
+      "url": "{{ _.base_url }}/auth/me",
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.token }}"
+        }
+      ]
+    },
+    {
+      "_id": "req_create_habit",
+      "_type": "request",
+      "name": "Create Habit",
+      "method": "POST",
+      "url": "{{ _.base_url }}/habits",
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.token }}"
+        }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"title\": \"Exercícios\",\n  \"description\": \"Praticar 30 minutos de exercícios\"\n}"
+      }
+    },
+    {
+      "_id": "req_get_habits",
+      "_type": "request",
+      "name": "Get All Habits",
+      "method": "GET",
+      "url": "{{ _.base_url }}/habits",
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.token }}"
+        }
+      ]
+    },
+    {
+      "_id": "req_get_habit",
+      "_type": "request",
+      "name": "Get Habit by ID",
+      "method": "GET",
+      "url": "{{ _.base_url }}/habits/:id",
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.token }}"
+        }
+      ]
+    },
+    {
+      "_id": "req_update_habit",
+      "_type": "request",
+      "name": "Update Habit",
+      "method": "PUT",
+      "url": "{{ _.base_url }}/habits/:id",
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.token }}"
+        }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"title\": \"Exercícios Updated\"\n}"
+      }
+    },
+    {
+      "_id": "req_delete_habit",
+      "_type": "request",
+      "name": "Delete Habit",
+      "method": "DELETE",
+      "url": "{{ _.base_url }}/habits/:id",
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.token }}"
+        }
+      ]
+    },
+    {
+      "_id": "req_create_checkin",
+      "_type": "request",
+      "name": "Create Check-in",
+      "method": "POST",
+      "url": "{{ _.base_url }}/habits/:habitId/checkin",
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.token }}"
+        }
+      ],
+      "body": {
+        "mimeType": "application/json",
+        "text": "{}"
+      }
+    },
+    {
+      "_id": "req_get_checkins",
+      "_type": "request",
+      "name": "Get Check-ins",
+      "method": "GET",
+      "url": "{{ _.base_url }}/habits/:habitId/checkins",
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.token }}"
+        }
+      ]
+    },
+    {
+      "_id": "req_get_stats",
+      "_type": "request",
+      "name": "Get Habit Stats",
+      "method": "GET",
+      "url": "{{ _.base_url }}/habits/:habitId/stats",
+      "headers": [
+        {
+          "name": "Authorization",
+          "value": "Bearer {{ _.token }}"
+        }
+      ]
+    }
+  ]
+}
