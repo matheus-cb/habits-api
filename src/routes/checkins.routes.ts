@@ -1,9 +1,13 @@
 import { Router } from 'express';
+import { z } from 'zod';
 import { CheckinsController } from '@/controllers/checkins.controller';
 import { validateBody, validateParams } from '@/middlewares/validation.middleware';
 import { authenticate } from '@/middlewares/auth.middleware';
 import { createCheckinSchema } from '@/schemas/checkins.schema';
-import { habitIdSchema } from '@/schemas/habits.schema';
+
+const habitIdParamSchema = z.object({
+  habitId: z.string().uuid('Invalid habit ID'),
+});
 
 const router = Router();
 const checkinsController = new CheckinsController();
@@ -40,7 +44,7 @@ router.use(authenticate);
  */
 router.post(
   '/habits/:habitId/checkin',
-  validateParams(habitIdSchema.extend({ habitId: habitIdSchema.shape.id })),
+  validateParams(habitIdParamSchema),
   validateBody(createCheckinSchema),
   checkinsController.create
 );
@@ -65,7 +69,7 @@ router.post(
  */
 router.get(
   '/habits/:habitId/checkins',
-  validateParams(habitIdSchema.extend({ habitId: habitIdSchema.shape.id })),
+  validateParams(habitIdParamSchema),
   checkinsController.getByHabit
 );
 
@@ -89,7 +93,7 @@ router.get(
  */
 router.get(
   '/habits/:habitId/stats',
-  validateParams(habitIdSchema.extend({ habitId: habitIdSchema.shape.id })),
+  validateParams(habitIdParamSchema),
   checkinsController.getStats
 );
 
