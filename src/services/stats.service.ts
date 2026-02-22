@@ -27,9 +27,29 @@ export class StatsService {
     // Calculate current streak
     const currentStreak = calculateStreak(checkinDates);
 
-    // Calculate best streak (simplified - could be optimized)
+    // Calculate best streak by iterating all historical check-ins
     let bestStreak = currentStreak;
-    // For now, best streak is same as current (can be improved with historical data)
+    if (checkinDates.length > 1) {
+      const sortedAsc = [...checkinDates]
+        .map((d) => {
+          const date = new Date(d);
+          date.setHours(0, 0, 0, 0);
+          return date;
+        })
+        .sort((a, b) => a.getTime() - b.getTime());
+
+      let runningStreak = 1;
+      for (let i = 1; i < sortedAsc.length; i++) {
+        const diffMs = sortedAsc[i].getTime() - sortedAsc[i - 1].getTime();
+        const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+        if (diffDays === 1) {
+          runningStreak++;
+          if (runningStreak > bestStreak) bestStreak = runningStreak;
+        } else {
+          runningStreak = 1;
+        }
+      }
+    }
 
     // Calculate completion rate for last 30 days
     const thirtyDaysAgo = new Date();
