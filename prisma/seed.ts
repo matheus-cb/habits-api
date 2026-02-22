@@ -27,11 +27,11 @@ async function main() {
 
   console.log('🗑️  Database cleaned');
 
-  const hashedPassword = await bcrypt.hash('demo123', 10);
+  const hashedPassword = await bcrypt.hash('demo@2026', 10);
 
   const user = await prisma.user.create({
     data: {
-      name: 'Regina Demo',
+      name: 'Usuário Demo',
       email: 'demo@example.com',
       password: hashedPassword,
     },
@@ -145,7 +145,7 @@ async function main() {
   console.log('');
   console.log('📝 Demo credentials:');
   console.log('   Email:    demo@example.com');
-  console.log('   Password: demo123');
+  console.log('   Password: demo@2026');
   console.log('');
   console.log('📊 Hábitos criados: 8');
 }

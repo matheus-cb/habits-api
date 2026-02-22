@@ -9,6 +9,12 @@ export class CheckinsRepository {
     });
   }
 
+  async findById(id: string): Promise<Checkin | null> {
+    return prisma.checkin.findUnique({
+      where: { id },
+    });
+  }
+
   async findByHabitIdAndDate(habitId: string, date: Date): Promise<Checkin | null> {
     return prisma.checkin.findUnique({
       where: {

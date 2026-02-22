@@ -54,4 +54,14 @@ export class CheckinsController {
     await this.checkinsService.deleteCheckin(id, userId);
     return res.status(204).send();
   };
+
+  deleteCheckin = async (
+    req: Request<{ habitId: string; checkinId: string }>,
+    res: Response
+  ) => {
+    const userId = req.user!.id;
+    const { checkinId } = req.params;
+    await this.checkinsService.deleteCheckin(checkinId, userId);
+    return res.status(204).send();
+  };
 }

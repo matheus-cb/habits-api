@@ -53,8 +53,7 @@ export class CheckinsService {
   }
 
   async deleteCheckin(checkinId: string, userId: string) {
-    // First get the checkin to verify ownership through habit
-    const checkin = await this.checkinsRepository.findByHabitIdAndDate(checkinId, new Date());
+    const checkin = await this.checkinsRepository.findById(checkinId);
 
     if (!checkin) {
       throw new NotFoundError('Check-in');
