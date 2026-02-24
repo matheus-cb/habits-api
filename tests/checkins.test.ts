@@ -68,6 +68,57 @@ describe('Checkins Endpoints', () => {
     });
   });
 
+  describe('DELETE /api/v1/habits/:habitId/checkins/:id', () => {
+    let checkinId: string;
+
+    beforeEach(async () => {
+      const checkinResponse = await request(app)
+        .post(`/api/v1/habits/${habitId}/checkin`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({});
+      checkinId = checkinResponse.body.data.id;
+    });
+
+    it('should delete a check-in and return 204', async () => {
+      const response = await request(app)
+        .delete(`/api/v1/habits/${habitId}/checkins/${checkinId}`)
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(response.status).toBe(204);
+    });
+
+    it('should return 404 when check-in does not exist', async () => {
+      const fakeId = '00000000-0000-0000-0000-000000000000';
+      const response = await request(app)
+        .delete(`/api/v1/habits/${habitId}/checkins/${fakeId}`)
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(response.status).toBe(404);
+    });
+
+    it('should return 403 when habit belongs to another user', async () => {
+      const otherAuth = await request(app).post('/api/v1/auth/register').send({
+        name: 'Other User',
+        email: 'other@example.com',
+        password: 'password123',
+      });
+      const otherToken = otherAuth.body.data.accessToken;
+
+      const response = await request(app)
+        .delete(`/api/v1/habits/${habitId}/checkins/${checkinId}`)
+        .set('Authorization', `Bearer ${otherToken}`);
+
+      expect(response.status).toBe(403);
+    });
+
+    it('should return 401 when not authenticated', async () => {
+      const response = await request(app)
+        .delete(`/api/v1/habits/${habitId}/checkins/${checkinId}`);
+
+      expect(response.status).toBe(401);
+    });
+  });
+
   describe('GET /api/v1/habits/:habitId/stats', () => {
     beforeEach(async () => {
       await request(app)

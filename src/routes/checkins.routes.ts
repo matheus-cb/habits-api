@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { CheckinsController } from '@/controllers/checkins.controller';
 import { validateBody, validateParams } from '@/middlewares/validation.middleware';
 import { authenticate } from '@/middlewares/auth.middleware';
-import { createCheckinSchema } from '@/schemas/checkins.schema';
+import { createCheckinSchema, checkinParamSchema } from '@/schemas/checkins.schema';
 
 const habitIdParamSchema = z.object({
   habitId: z.string().uuid('Invalid habit ID'),
@@ -95,6 +95,39 @@ router.get(
   '/habits/:habitId/stats',
   validateParams(habitIdParamSchema),
   checkinsController.getStats
+);
+
+/**
+ * @swagger
+ * /habits/{habitId}/checkins/{id}:
+ *   delete:
+ *     summary: Delete a check-in (undo)
+ *     tags: [Checkins]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: habitId
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       204:
+ *         description: Check-in deleted successfully
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Habit or check-in not found
+ */
+router.delete(
+  '/habits/:habitId/checkins/:id',
+  validateParams(checkinParamSchema),
+  checkinsController.delete
 );
 
 export default router;

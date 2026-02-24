@@ -48,10 +48,10 @@ export class CheckinsController {
     return res.status(200).json(successResponse(result));
   };
 
-  delete = async (req: Request<{ id: string }>, res: Response) => {
+  delete = async (req: Request<{ habitId: string; id: string }>, res: Response) => {
     const userId = req.user!.id;
-    const { id } = req.params;
-    await this.checkinsService.deleteCheckin(id, userId);
+    const { habitId, id } = req.params;
+    await this.checkinsService.deleteCheckin(id, habitId, userId);
     return res.status(204).send();
   };
 }
