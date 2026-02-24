@@ -52,18 +52,21 @@ export class CheckinsService {
     return this.checkinsRepository.findByHabitId(habitId);
   }
 
-  async deleteCheckin(checkinId: string, userId: string) {
-    // First get the checkin to verify ownership through habit
-    const checkin = await this.checkinsRepository.findByHabitIdAndDate(checkinId, new Date());
+  async deleteCheckin(checkinId: string, habitId: string, userId: string) {
+    const habit = await this.habitsRepository.findById(habitId);
 
-    if (!checkin) {
-      throw new NotFoundError('Check-in');
+    if (!habit) {
+      throw new NotFoundError('Habit');
     }
 
-    const habit = await this.habitsRepository.findById(checkin.habitId);
+    if (habit.userId !== userId) {
+      throw new ForbiddenError('You do not have access to this habit');
+    }
 
-    if (!habit || habit.userId !== userId) {
-      throw new ForbiddenError('You do not have access to this check-in');
+    const checkin = await this.checkinsRepository.findById(checkinId);
+
+    if (!checkin || checkin.habitId !== habitId) {
+      throw new NotFoundError('Check-in');
     }
 
     await this.checkinsRepository.delete(checkinId);
