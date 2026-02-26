@@ -4,7 +4,7 @@ import { UsersRepository } from '@/repositories/users.repository';
 import { ConflictError, UnauthorizedError } from '@/utils/errors';
 import { authConfig } from '@/config/auth';
 import { LoginResponse, JwtPayload } from '@/types/auth.types';
-import { RegisterInput, LoginInput } from '@/schemas/auth.schema';
+import { RegisterInput, LoginInput, UpdateProfileInput } from '@/schemas/auth.schema';
 
 export class AuthService {
   constructor(private usersRepository: UsersRepository) {}
@@ -72,6 +72,24 @@ export class AuthService {
     if (!user) {
       throw new UnauthorizedError('User not found');
     }
+
+    return {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      createdAt: user.createdAt,
+    };
+  }
+
+  async updateProfile(userId: string, data: UpdateProfileInput) {
+    if (data.email) {
+      const existing = await this.usersRepository.findByEmail(data.email);
+      if (existing && existing.id !== userId) {
+        throw new ConflictError('Email already in use');
+      }
+    }
+
+    const user = await this.usersRepository.update(userId, data);
 
     return {
       id: user.id,

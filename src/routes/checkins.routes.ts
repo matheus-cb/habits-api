@@ -1,9 +1,9 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { CheckinsController } from '@/controllers/checkins.controller';
-import { validateBody, validateParams } from '@/middlewares/validation.middleware';
+import { validateBody, validateParams, validateQuery } from '@/middlewares/validation.middleware';
 import { authenticate } from '@/middlewares/auth.middleware';
-import { createCheckinSchema, checkinParamSchema } from '@/schemas/checkins.schema';
+import { createCheckinSchema, checkinParamSchema, checkinDateRangeSchema } from '@/schemas/checkins.schema';
 
 const habitIdParamSchema = z.object({
   habitId: z.string().uuid('Invalid habit ID'),
@@ -70,6 +70,7 @@ router.post(
 router.get(
   '/habits/:habitId/checkins',
   validateParams(habitIdParamSchema),
+  validateQuery(checkinDateRangeSchema),
   checkinsController.getByHabit
 );
 

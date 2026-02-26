@@ -66,6 +66,53 @@ describe('Checkins Endpoints', () => {
       expect(response.body.data).toBeInstanceOf(Array);
       expect(response.body.data.length).toBeGreaterThan(0);
     });
+
+    it('should filter check-ins by date range', async () => {
+      // Create a check-in 5 days ago
+      const pastDate = new Date();
+      pastDate.setDate(pastDate.getDate() - 5);
+      await request(app)
+        .post(`/api/v1/habits/${habitId}/checkin`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ date: pastDate.toISOString() });
+
+      // Query with a range that includes only the past date
+      const rangeStart = new Date();
+      rangeStart.setDate(rangeStart.getDate() - 7);
+      const rangeEnd = new Date();
+      rangeEnd.setDate(rangeEnd.getDate() - 3);
+
+      const response = await request(app)
+        .get(`/api/v1/habits/${habitId}/checkins`)
+        .set('Authorization', `Bearer ${token}`)
+        .query({
+          startDate: rangeStart.toISOString(),
+          endDate: rangeEnd.toISOString(),
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.data).toBeInstanceOf(Array);
+      expect(response.body.data.length).toBe(1);
+    });
+
+    it('should return empty array when no check-ins in date range', async () => {
+      const futureStart = new Date();
+      futureStart.setFullYear(futureStart.getFullYear() + 1);
+      const futureEnd = new Date();
+      futureEnd.setFullYear(futureEnd.getFullYear() + 2);
+
+      const response = await request(app)
+        .get(`/api/v1/habits/${habitId}/checkins`)
+        .set('Authorization', `Bearer ${token}`)
+        .query({
+          startDate: futureStart.toISOString(),
+          endDate: futureEnd.toISOString(),
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.data).toBeInstanceOf(Array);
+      expect(response.body.data.length).toBe(0);
+    });
   });
 
   describe('DELETE /api/v1/habits/:habitId/checkins/:id', () => {
