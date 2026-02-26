@@ -8,6 +8,8 @@
     "build": "tsup src --out-dir dist",
     "start": "node dist/server.js",
     "test": "jest",
+    "test:unit": "jest --config jest.unit.config.js",
+    "test:integration": "jest --config jest.config.js --testPathPattern='tests/(auth|habits|checkins).test.ts'",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "lint": "eslint src --ext .ts",
