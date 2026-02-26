@@ -4,7 +4,7 @@ import { StatsService } from '@/services/stats.service';
 import { CheckinsRepository } from '@/repositories/checkins.repository';
 import { HabitsRepository } from '@/repositories/habits.repository';
 import { successResponse } from '@/utils/response';
-import { CreateCheckinInput } from '@/schemas/checkins.schema';
+import { CreateCheckinInput, CheckinDateRangeInput } from '@/schemas/checkins.schema';
 
 export class CheckinsController {
   private checkinsService: CheckinsService;
@@ -34,10 +34,19 @@ export class CheckinsController {
     return res.status(201).json(successResponse(result, 'Check-in created successfully'));
   };
 
-  getByHabit = async (req: Request<{ habitId: string }>, res: Response) => {
+  getByHabit = async (
+    req: Request<{ habitId: string }, object, object, CheckinDateRangeInput>,
+    res: Response
+  ) => {
     const userId = req.user!.id;
     const { habitId } = req.params;
-    const result = await this.checkinsService.getCheckinsByHabit(habitId, userId);
+    const { startDate, endDate } = req.query;
+    const result = await this.checkinsService.getCheckinsByHabit(
+      habitId,
+      userId,
+      startDate ? new Date(startDate) : undefined,
+      endDate ? new Date(endDate) : undefined
+    );
     return res.status(200).json(successResponse(result));
   };
 

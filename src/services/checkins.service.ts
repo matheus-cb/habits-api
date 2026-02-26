@@ -38,7 +38,12 @@ export class CheckinsService {
     });
   }
 
-  async getCheckinsByHabit(habitId: string, userId: string) {
+  async getCheckinsByHabit(
+    habitId: string,
+    userId: string,
+    startDate?: Date,
+    endDate?: Date
+  ) {
     const habit = await this.habitsRepository.findById(habitId);
 
     if (!habit) {
@@ -47,6 +52,10 @@ export class CheckinsService {
 
     if (habit.userId !== userId) {
       throw new ForbiddenError('You do not have access to this habit');
+    }
+
+    if (startDate && endDate) {
+      return this.checkinsRepository.findByHabitIdAndDateRange(habitId, startDate, endDate);
     }
 
     return this.checkinsRepository.findByHabitId(habitId);
