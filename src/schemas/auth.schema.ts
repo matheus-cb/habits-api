@@ -14,5 +14,15 @@ export const loginSchema = z.object({
   password: z.string().min(1, 'Password is required'),
 });
 
+export const updateProfileSchema = z
+  .object({
+    name: z.string().min(2, 'Name must be at least 2 characters').max(100).optional(),
+    email: z.string().email('Invalid email format').optional(),
+  })
+  .refine((data) => data.name !== undefined || data.email !== undefined, {
+    message: 'At least one field must be provided',
+  });
+
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
+export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
