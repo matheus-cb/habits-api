@@ -66,6 +66,104 @@ describe('Checkins Endpoints', () => {
       expect(response.body.data).toBeInstanceOf(Array);
       expect(response.body.data.length).toBeGreaterThan(0);
     });
+
+    it('should filter check-ins by date range', async () => {
+      // Create a check-in 5 days ago
+      const pastDate = new Date();
+      pastDate.setDate(pastDate.getDate() - 5);
+      await request(app)
+        .post(`/api/v1/habits/${habitId}/checkin`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ date: pastDate.toISOString() });
+
+      // Query with a range that includes only the past date
+      const rangeStart = new Date();
+      rangeStart.setDate(rangeStart.getDate() - 7);
+      const rangeEnd = new Date();
+      rangeEnd.setDate(rangeEnd.getDate() - 3);
+
+      const response = await request(app)
+        .get(`/api/v1/habits/${habitId}/checkins`)
+        .set('Authorization', `Bearer ${token}`)
+        .query({
+          startDate: rangeStart.toISOString(),
+          endDate: rangeEnd.toISOString(),
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.data).toBeInstanceOf(Array);
+      expect(response.body.data.length).toBe(1);
+    });
+
+    it('should return empty array when no check-ins in date range', async () => {
+      const futureStart = new Date();
+      futureStart.setFullYear(futureStart.getFullYear() + 1);
+      const futureEnd = new Date();
+      futureEnd.setFullYear(futureEnd.getFullYear() + 2);
+
+      const response = await request(app)
+        .get(`/api/v1/habits/${habitId}/checkins`)
+        .set('Authorization', `Bearer ${token}`)
+        .query({
+          startDate: futureStart.toISOString(),
+          endDate: futureEnd.toISOString(),
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.data).toBeInstanceOf(Array);
+      expect(response.body.data.length).toBe(0);
+    });
+  });
+
+  describe('DELETE /api/v1/habits/:habitId/checkins/:id', () => {
+    let checkinId: string;
+
+    beforeEach(async () => {
+      const checkinResponse = await request(app)
+        .post(`/api/v1/habits/${habitId}/checkin`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({});
+      checkinId = checkinResponse.body.data.id;
+    });
+
+    it('should delete a check-in and return 204', async () => {
+      const response = await request(app)
+        .delete(`/api/v1/habits/${habitId}/checkins/${checkinId}`)
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(response.status).toBe(204);
+    });
+
+    it('should return 404 when check-in does not exist', async () => {
+      const fakeId = '00000000-0000-0000-0000-000000000000';
+      const response = await request(app)
+        .delete(`/api/v1/habits/${habitId}/checkins/${fakeId}`)
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(response.status).toBe(404);
+    });
+
+    it('should return 403 when habit belongs to another user', async () => {
+      const otherAuth = await request(app).post('/api/v1/auth/register').send({
+        name: 'Other User',
+        email: 'other@example.com',
+        password: 'password123',
+      });
+      const otherToken = otherAuth.body.data.accessToken;
+
+      const response = await request(app)
+        .delete(`/api/v1/habits/${habitId}/checkins/${checkinId}`)
+        .set('Authorization', `Bearer ${otherToken}`);
+
+      expect(response.status).toBe(403);
+    });
+
+    it('should return 401 when not authenticated', async () => {
+      const response = await request(app)
+        .delete(`/api/v1/habits/${habitId}/checkins/${checkinId}`);
+
+      expect(response.status).toBe(401);
+    });
   });
 
   describe('GET /api/v1/habits/:habitId/stats', () => {

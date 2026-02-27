@@ -1,18 +1,14 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { CheckinsController } from '@/controllers/checkins.controller';
-import { validateBody, validateParams } from '@/middlewares/validation.middleware';
+import { validateBody, validateParams, validateQuery } from '@/middlewares/validation.middleware';
 import { authenticate } from '@/middlewares/auth.middleware';
-import { createCheckinSchema } from '@/schemas/checkins.schema';
+import { createCheckinSchema, checkinParamSchema, checkinDateRangeSchema } from '@/schemas/checkins.schema';
 
 const habitIdParamSchema = z.object({
   habitId: z.string().uuid('Invalid habit ID'),
 });
 
-const checkinParamSchema = z.object({
-  habitId: z.string().uuid('Invalid habit ID'),
-  checkinId: z.string().uuid('Invalid checkin ID'),
-});
 
 const router = Router();
 const checkinsController = new CheckinsController();
@@ -75,6 +71,7 @@ router.post(
 router.get(
   '/habits/:habitId/checkins',
   validateParams(habitIdParamSchema),
+  validateQuery(checkinDateRangeSchema),
   checkinsController.getByHabit
 );
 
@@ -104,9 +101,9 @@ router.get(
 
 /**
  * @swagger
- * /habits/{habitId}/checkins/{checkinId}:
+ * /habits/{habitId}/checkins/{id}:
  *   delete:
- *     summary: Delete a check-in
+ *     summary: Delete a check-in (undo)
  *     tags: [Checkins]
  *     security:
  *       - bearerAuth: []
@@ -117,18 +114,22 @@ router.get(
  *         schema:
  *           type: string
  *       - in: path
- *         name: checkinId
+ *         name: id
  *         required: true
  *         schema:
  *           type: string
  *     responses:
  *       204:
  *         description: Check-in deleted successfully
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Habit or check-in not found
  */
 router.delete(
-  '/habits/:habitId/checkins/:checkinId',
+  '/habits/:habitId/checkins/:id',
   validateParams(checkinParamSchema),
-  checkinsController.deleteCheckin
+  checkinsController.delete
 );
 
 export default router;

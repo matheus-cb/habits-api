@@ -110,4 +110,70 @@ describe('Auth Endpoints', () => {
       expect(response.status).toBe(401);
     });
   });
+
+  describe('PUT /api/v1/auth/profile', () => {
+    let token: string;
+
+    beforeEach(async () => {
+      const response = await request(app).post('/api/v1/auth/register').send({
+        name: 'Test User',
+        email: 'test@example.com',
+        password: 'password123',
+      });
+      token = response.body.data.accessToken;
+    });
+
+    it('should update user name', async () => {
+      const response = await request(app)
+        .put('/api/v1/auth/profile')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ name: 'Updated Name' });
+
+      expect(response.status).toBe(200);
+      expect(response.body.data.name).toBe('Updated Name');
+      expect(response.body.data.email).toBe('test@example.com');
+    });
+
+    it('should update user email', async () => {
+      const response = await request(app)
+        .put('/api/v1/auth/profile')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ email: 'updated@example.com' });
+
+      expect(response.status).toBe(200);
+      expect(response.body.data.email).toBe('updated@example.com');
+    });
+
+    it('should return 409 when email is already in use', async () => {
+      await request(app).post('/api/v1/auth/register').send({
+        name: 'Other User',
+        email: 'other@example.com',
+        password: 'password123',
+      });
+
+      const response = await request(app)
+        .put('/api/v1/auth/profile')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ email: 'other@example.com' });
+
+      expect(response.status).toBe(409);
+    });
+
+    it('should return 400 when no fields are provided', async () => {
+      const response = await request(app)
+        .put('/api/v1/auth/profile')
+        .set('Authorization', `Bearer ${token}`)
+        .send({});
+
+      expect(response.status).toBe(400);
+    });
+
+    it('should return 401 when not authenticated', async () => {
+      const response = await request(app)
+        .put('/api/v1/auth/profile')
+        .send({ name: 'New Name' });
+
+      expect(response.status).toBe(401);
+    });
+  });
 });
