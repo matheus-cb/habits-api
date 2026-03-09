@@ -25,6 +25,7 @@ export class HabitsRepository {
     title: string;
     description?: string;
     userId: string;
+    scheduledDays?: number[];
   }): Promise<Habit> {
     return prisma.habit.create({
       data,
@@ -33,7 +34,7 @@ export class HabitsRepository {
 
   async update(
     id: string,
-    data: { title?: string; description?: string | null }
+    data: { title?: string; description?: string | null; scheduledDays?: number[] }
   ): Promise<Habit> {
     return prisma.habit.update({
       where: { id },
