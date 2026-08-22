@@ -310,12 +310,12 @@ Authorization: Bearer <token>
 
 | Código | Descrição |
 |--------|-----------|
-| 400 | Bad Request - Dados inválidos |
+| 400 | Bad Request - dados inválidos, **inclusive falha de validação Zod** |
 | 401 | Unauthorized - Token inválido ou ausente |
 | 403 | Forbidden - Sem permissão para acessar recurso |
 | 404 | Not Found - Recurso não encontrado |
 | 409 | Conflict - Conflito (ex: email já existe) |
-| 422 | Validation Error - Erro de validação |
+| 422 | Reservado. `ValidationError` existe em `utils/errors.ts`, mas nenhum caminho atual a usa: erro de schema Zod responde **400** |
 | 500 | Internal Server Error - Erro interno |
 
 **Formato de Erro:**

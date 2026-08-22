@@ -1,10 +1,14 @@
 # Habits API 🎯
 
-API REST completa para gerenciamento de hábitos com sistema de gamificação, desenvolvida com Node.js, TypeScript e arquitetura escalável.
+API REST para rastreamento de hábitos, com agendamento semanal, estatísticas de aderência determinísticas e uma camada de insights assistida por IA. Node.js, TypeScript, Express, Prisma e PostgreSQL.
+
+> Gamificação (conquistas, badges) é do app mobile e não existe nesta API — o schema tem três modelos: `User`, `Habit` e `Checkin`.
 
 ## 📋 Sobre o Projeto
 
-API RESTful robusta para aplicativo de produtividade focado em tracking de hábitos. Inclui autenticação JWT, sistema de check-ins, estatísticas de progresso e documentação completa com Swagger.
+API RESTful para aplicativo de produtividade focado em rastreamento de hábitos. Autenticação JWT, check-ins com um registro por hábito por dia garantido pelo banco, estatísticas de aderência medidas contra os dias agendados, servidor MCP somente leitura, e documentação Swagger em `/api-docs`.
+
+As regras de negócio estão escritas como invariantes numeradas em [AGENTS.md](AGENTS.md); cada uma tem um teste que a cita pelo número.
 
 ## ✨ Features
 

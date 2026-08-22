@@ -1,7 +1,21 @@
 import { z } from 'zod';
 
+/**
+ * Dias da semana em que o hábito é cobrado: 0 = domingo … 6 = sábado, a mesma
+ * convenção de `Date.getUTCDay()`.
+ *
+ * Array vazio (o default do schema) significa "todo dia". O `.max(7)` e a
+ * checagem de repetição existem porque, sem elas, `[1,1,1,1,1,1,1,1]` era aceito
+ * e ia para o banco: a validação de faixa por elemento não diz nada sobre o
+ * conjunto. Um conjunto sujo distorce silenciosamente a taxa de aderência, que é
+ * calculada sobre a contagem de dias agendados.
+ */
 const scheduledDaysSchema = z
   .array(z.number().int().min(0).max(6))
+  .max(7, 'scheduledDays cannot have more than 7 entries')
+  .refine((days) => new Set(days).size === days.length, {
+    message: 'scheduledDays cannot repeat a weekday',
+  })
   .optional();
 
 export const createHabitSchema = z.object({

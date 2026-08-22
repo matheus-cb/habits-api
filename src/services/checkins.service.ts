@@ -1,7 +1,7 @@
 import { CheckinsRepository } from '@/repositories/checkins.repository';
 import { HabitsRepository } from '@/repositories/habits.repository';
 import { NotFoundError, ForbiddenError, ConflictError } from '@/utils/errors';
-import { startOfDay } from '@/utils/helpers';
+import { utcStartOfDay } from '@/utils/helpers';
 
 export class CheckinsService {
   constructor(
@@ -20,9 +20,18 @@ export class CheckinsService {
       throw new ForbiddenError('You do not have access to this habit');
     }
 
-    const checkinDate = date ? startOfDay(new Date(date)) : startOfDay(new Date());
+    // O dia é sempre resolvido em UTC, igual à coluna `@db.Date`. Com
+    // meia-noite local, em fuso à frente de UTC o check-in caía no dia anterior.
+    const checkinDate = utcStartOfDay(date ? new Date(date) : new Date());
 
-    // Check if check-in already exists for this date
+    // Check-in em dia NÃO agendado é aceito de propósito: fazer a mais nunca é
+    // erro. Ele não conta para a aderência nem emenda sequência — ver
+    // StatsService, campo `extraCheckins`.
+
+    // A checagem abaixo é conveniência para devolver 409 com mensagem em vez de
+    // um erro de constraint. A garantia de um check-in por dia é do banco,
+    // @@unique([habitId, date]) — não desta consulta, que corre em transação
+    // separada e perde para dois pedidos simultâneos.
     const existingCheckin = await this.checkinsRepository.findByHabitIdAndDate(
       habitId,
       checkinDate
@@ -32,18 +41,23 @@ export class CheckinsService {
       throw new ConflictError('Check-in already exists for this date');
     }
 
-    return this.checkinsRepository.create({
-      habitId,
-      date: checkinDate,
-    });
+    try {
+      return await this.checkinsRepository.create({
+        habitId,
+        date: checkinDate,
+      });
+    } catch (error) {
+      // Dois pedidos simultâneos passam os dois pela consulta acima e um perde
+      // na constraint. Sem esta tradução o vencedor recebia 201 e o perdedor
+      // 500 — mesmo caso de negócio, resposta diferente por acidente de tempo.
+      if (isUniqueConstraintViolation(error)) {
+        throw new ConflictError('Check-in already exists for this date');
+      }
+      throw error;
+    }
   }
 
-  async getCheckinsByHabit(
-    habitId: string,
-    userId: string,
-    startDate?: Date,
-    endDate?: Date
-  ) {
+  async getCheckinsByHabit(habitId: string, userId: string, startDate?: Date, endDate?: Date) {
     const habit = await this.habitsRepository.findById(habitId);
 
     if (!habit) {
@@ -80,4 +94,18 @@ export class CheckinsService {
 
     await this.checkinsRepository.delete(checkinId);
   }
+}
+
+/**
+ * P2002 é o código do Prisma para violação de constraint única. Checar o código,
+ * e não a classe, mantém o service livre de import do Prisma — INV do
+ * repositório como única porta do banco.
+ */
+function isUniqueConstraintViolation(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: unknown }).code === 'P2002'
+  );
 }

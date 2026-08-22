@@ -3,12 +3,15 @@ import { z } from 'zod';
 import { CheckinsController } from '@/controllers/checkins.controller';
 import { validateBody, validateParams, validateQuery } from '@/middlewares/validation.middleware';
 import { authenticate } from '@/middlewares/auth.middleware';
-import { createCheckinSchema, checkinParamSchema, checkinDateRangeSchema } from '@/schemas/checkins.schema';
+import {
+  createCheckinSchema,
+  checkinParamSchema,
+  checkinDateRangeSchema,
+} from '@/schemas/checkins.schema';
 
 const habitIdParamSchema = z.object({
   habitId: z.string().uuid('Invalid habit ID'),
 });
-
 
 const router = Router();
 const checkinsController = new CheckinsController();

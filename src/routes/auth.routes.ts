@@ -101,6 +101,11 @@ router.get('/me', authenticate, authController.getProfile);
  *       409:
  *         description: Email already in use
  */
-router.put('/profile', authenticate, validateBody(updateProfileSchema), authController.updateProfile);
+router.put(
+  '/profile',
+  authenticate,
+  validateBody(updateProfileSchema),
+  authController.updateProfile
+);
 
 export default router;

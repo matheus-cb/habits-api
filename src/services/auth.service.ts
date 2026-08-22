@@ -100,8 +100,11 @@ export class AuthService {
   }
 
   private generateToken(payload: JwtPayload): string {
+    // JWT_EXPIRES_IN vem do ambiente como string; o jsonwebtoken tipa expiresIn
+    // como número de segundos ou literal de duração ('7d'). O Zod já garante que
+    // é string — o cast reconcilia os dois tipos sem afrouxar a validação.
     return jwt.sign(payload, authConfig.secret, {
-      expiresIn: authConfig.expiresIn,
+      expiresIn: authConfig.expiresIn as jwt.SignOptions['expiresIn'],
     });
   }
 }

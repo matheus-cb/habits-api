@@ -9,10 +9,9 @@ export const checkinDateRangeSchema = z
     startDate: z.string().datetime().optional(),
     endDate: z.string().datetime().optional(),
   })
-  .refine(
-    (d) => (d.startDate == null) === (d.endDate == null),
-    { message: 'startDate and endDate must be provided together' }
-  );
+  .refine((d) => (d.startDate == null) === (d.endDate == null), {
+    message: 'startDate and endDate must be provided together',
+  });
 
 export const checkinParamSchema = z.object({
   habitId: z.string().uuid('Invalid habit ID'),

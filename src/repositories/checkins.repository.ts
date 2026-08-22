@@ -60,4 +60,36 @@ export class CheckinsRepository {
       where: { habitId },
     });
   }
+
+  /**
+   * Check-ins de vários hábitos numa janela, em uma consulta.
+   *
+   * Existe para o relatório de aderência: com `findByHabitIdAndDateRange` num
+   * laço, um usuário com 20 hábitos gerava 20 consultas por requisição. A porta
+   * do banco continua sendo o repositório (INV-02) — o service só recebe o
+   * resultado agrupado.
+   */
+  async findByHabitIdsAndDateRange(
+    habitIds: string[],
+    startDate: Date,
+    endDate: Date
+  ): Promise<Checkin[]> {
+    if (habitIds.length === 0) return [];
+    return prisma.checkin.findMany({
+      where: {
+        habitId: { in: habitIds },
+        date: { gte: startDate, lte: endDate },
+      },
+      orderBy: { date: 'desc' },
+    });
+  }
+
+  /** Todos os check-ins de vários hábitos, sem janela. Usado para o melhor streak. */
+  async findByHabitIds(habitIds: string[]): Promise<Checkin[]> {
+    if (habitIds.length === 0) return [];
+    return prisma.checkin.findMany({
+      where: { habitId: { in: habitIds } },
+      orderBy: { date: 'desc' },
+    });
+  }
 }

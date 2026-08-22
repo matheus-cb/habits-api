@@ -8,6 +8,7 @@ import { requestLogger } from './middlewares/logger.middleware';
 import { errorHandler } from './middlewares/error.middleware';
 import { setupSwagger } from './docs/swagger';
 import routes from './routes';
+import { createMcpRouter } from './mcp/server';
 import { successResponse } from './utils/response';
 
 const app: Express = express();
@@ -44,6 +45,10 @@ app.get('/health', (_req, res) => {
 
 // API Routes
 app.use('/api/v1', routes);
+
+// Servidor MCP somente leitura, para assistente externo. Fora de /api/v1 de
+// propósito: não é REST e não versiona junto com a API HTTP.
+app.use('/mcp', createMcpRouter());
 
 // 404 handler
 app.use((_req, res) => {
