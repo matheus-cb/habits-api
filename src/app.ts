@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import 'express-async-errors';
 
 import { env } from './config/env';
+import { checkDatabase } from './config/database';
 import { requestLogger } from './middlewares/logger.middleware';
 import { errorHandler } from './middlewares/error.middleware';
 import { setupSwagger } from './docs/swagger';
@@ -33,10 +34,22 @@ app.use(requestLogger);
 setupSwagger(app);
 
 // Health check
-app.get('/health', (_req, res) => {
-  res.status(200).json(
+//
+// Consulta o banco de propósito. A versão anterior só respondia 200 se o processo
+// estivesse vivo, e isso produziu um verde falso caro: o container do CI subiu sem
+// nenhuma tabela (as migrações não estavam versionadas), reportou `healthy` para o
+// `docker compose --wait`, e só o smoke descobriu — com 500 em toda rota de dado.
+//
+// Healthcheck que não toca a dependência crítica é teste de liveness vendido como
+// readiness. Aqui a pergunta é "esta instância consegue atender?", e sem banco a
+// resposta é não.
+app.get('/health', async (_req, res) => {
+  const database = await checkDatabase();
+
+  return res.status(database.ok ? 200 : 503).json(
     successResponse({
-      status: 'healthy',
+      status: database.ok ? 'healthy' : 'unhealthy',
+      database: database.ok ? 'up' : database.reason,
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
     })

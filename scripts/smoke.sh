@@ -82,8 +82,16 @@ echo "1. saúde da stack"
 
 resposta=$(curl --silent --show-error --max-time 20 --retry 12 --retry-delay 5 \
   --retry-connrefused --write-out '\n%{http_code}' "$BASE/health" 2>&1)
+corpo=$(corpo_de "$resposta")
 conferir_status "GET /health responde 200 (a imagem sobe e as migrações rodaram)" \
-  200 "$(status_de "$resposta")" "$(corpo_de "$resposta")"
+  200 "$(status_de "$resposta")" "$corpo"
+
+# O /health consulta o banco. A versão anterior só dizia que o processo estava
+# vivo, e isso produziu um verde falso no CI: o container subiu SEM NENHUMA
+# TABELA — as migrações não estavam versionadas —, reportou healthy para o
+# `docker compose --wait`, e só o registro de usuário revelou, com 500.
+conferir_igual "o healthcheck confirma que o esquema está aplicado" \
+  up "$(jq -r '.data.database // "ausente"' <<<"$corpo")" "$corpo"
 
 if [ "$(status_de "$resposta")" != "200" ]; then
   echo ""

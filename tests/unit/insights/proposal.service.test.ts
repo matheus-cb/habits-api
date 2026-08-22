@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { ProposalService } from '@/insights/proposal.service';
 import { planReschedule } from '@/insights/reschedule.engine';
 import { habitAdherence } from './fixtures';
@@ -274,19 +275,92 @@ describe('INV-19 — a proposta caduca se o agendamento mudar por outro caminho'
   });
 });
 
-describe('INV-18 — a chave de assinatura sobrevive a restart', () => {
-  it('INV-18: um token assinado é verificável por outra instância do serviço', async () => {
-    // A chave é derivada do JWT_SECRET por HKDF, não sorteada por processo. Duas
-    // instâncias do serviço no mesmo ambiente têm de aceitar o token da outra —
-    // sem isso a API não roda com mais de uma réplica, e a proposta morria a cada
-    // restart.
-    const outraInstancia = new ProposalService(mockHabitsRepository as never);
-    const { token } = service.sign(USER_ID, plan);
-    arrangeHabit();
+describe('INV-18 — a chave de assinatura é derivada, não sorteada', () => {
+  /**
+   * A primeira versão deste bloco criava duas instâncias de `ProposalService` e
+   * conferia que uma aceitava o token da outra. **Não provava nada:**
+   * `CHAVE_DE_ASSINATURA` é const de módulo, avaliada uma vez no carregamento, e
+   * duas instâncias no mesmo processo sempre compartilharam a chave — inclusive
+   * com o `randomBytes` anterior. O teste passava nas duas versões do código, e
+   * portanto não podia falhar pela regressão que nomeava.
+   *
+   * O que a mudança resolve é o caso entre PROCESSOS — réplicas e restart. Provar
+   * isso sem depender de mecânica de loader significa recomputar a chave esperada
+   * aqui e conferir a assinatura emitida.
+   */
+  function chaveEsperada(segredo: string, info: string): Buffer {
+    return Buffer.from(crypto.hkdfSync('sha256', segredo, '', info, 32));
+  }
 
-    await expect(outraInstancia.confirm(USER_ID, token)).resolves.toMatchObject({
-      scheduledDays: [1, 3],
+  function assinaturaDe(token: string): Buffer {
+    return Buffer.from(token.split('.')[1]!, 'base64url');
+  }
+
+  function payloadDe(token: string): Buffer {
+    return Buffer.from(token.split('.')[0]!, 'base64url');
+  }
+
+  it('INV-18: a assinatura confere com HMAC da chave derivada do JWT_SECRET', () => {
+    // Amarra três coisas de uma vez: que a chave vem do JWT_SECRET, que o `info`
+    // é aquele, e que nada aleatório entra na derivação. `randomBytes` reprova
+    // aqui, e um `info` alterado também.
+    const { token } = service.sign(USER_ID, plan);
+
+    const esperada = crypto
+      .createHmac('sha256', chaveEsperada(process.env.JWT_SECRET!, 'habits:reschedule-proposal:v1'))
+      .update(payloadDe(token))
+      .digest();
+
+    expect(assinaturaDe(token).equals(esperada)).toBe(true);
+  });
+
+  it('INV-18: adversário — assinar com o JWT_SECRET cru é recusado', async () => {
+    // Prova a separação de domínio. Sem este caso, "o `info` separa o domínio" é
+    // comentário e não invariante: um token assinado com o segredo de sessão
+    // seria aceito como proposta.
+    const payload = Buffer.from(
+      JSON.stringify({
+        userId: USER_ID,
+        habitId: HABIT_ID,
+        currentScheduledDays: [1, 3, 5],
+        proposedScheduledDays: [0, 1, 2, 3, 4, 5, 6],
+        expiresAt: Date.now() + 60_000,
+      }),
+      'utf8'
+    );
+    const assinatura = crypto
+      .createHmac('sha256', process.env.JWT_SECRET!)
+      .update(payload)
+      .digest();
+    const token = `${payload.toString('base64url')}.${assinatura.toString('base64url')}`;
+
+    await expect(service.confirm(USER_ID, token)).rejects.toMatchObject({
+      statusCode: 400,
+      message: 'Proposta inválida ou adulterada',
     });
+    expect(mockHabitsRepository.update).not.toHaveBeenCalled();
+  });
+
+  it('INV-18: adversário — chave derivada com outro info não valida o token', () => {
+    // Se a derivação ignorasse o `info`, qualquer label produziria a mesma chave e
+    // a separação de domínio seria decorativa.
+    const { token } = service.sign(USER_ID, plan);
+
+    const comOutroInfo = crypto
+      .createHmac('sha256', chaveEsperada(process.env.JWT_SECRET!, 'outro-dominio:v1'))
+      .update(payloadDe(token))
+      .digest();
+
+    expect(assinaturaDe(token).equals(comOutroInfo)).toBe(false);
+  });
+
+  it('INV-18: a derivação é estável — duas chamadas dão a mesma chave', () => {
+    // O que `randomBytes` não dava: reprodutibilidade. É isso que faz o token
+    // sobreviver a restart e valer entre réplicas.
+    const a = chaveEsperada(process.env.JWT_SECRET!, 'habits:reschedule-proposal:v1');
+    const b = chaveEsperada(process.env.JWT_SECRET!, 'habits:reschedule-proposal:v1');
+
+    expect(a.equals(b)).toBe(true);
   });
 });
 

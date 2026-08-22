@@ -20,6 +20,17 @@ Estado real, medido. Item desmarcado é lacuna conhecida, não esquecimento.
       verificado pelo próprio gate, não pela leitura de quem escreveu.
 - [x] Numeração `INV-nn` compartilhada com `habits-dashboard` e `habits-mobile`.
 
+## Reprodutibilidade
+
+- [x] **As migrações estão versionadas.** `.gitignore` excluía
+      `prisma/migrations/**/migration.sql`: um clone tinha o lock e nenhuma
+      migração, `migrate deploy` respondia "No migration found" e **saía com
+      sucesso**, e o banco ficava sem tabela. Foi o que derrubou a Camada 2 e o
+      smoke na primeira execução do CI.
+- [x] `/health` consulta o banco. Antes respondia 200 com o processo vivo e zero
+      tabelas — o container se declarava `healthy` para o `--wait` sem conseguir
+      atender request nenhum.
+
 ## Segurança da suíte
 
 - [x] A Camada 2 roda em banco separado (`habits_test`, de `.env.test`).
