@@ -60,15 +60,12 @@ A fronteira é a mesma em toda a camada: **a IA sugere, o código valida, a deci
 | **INV-18** | A IA nunca executa: reagendamento é proposta **assinada** aplicada só no confirm | `insights/proposal.service.ts` |
 | **INV-19** | Proposta é sugestão, não autorização — o confirm revalida dono, hábito e dias | `insights/proposal.service.ts` |
 
-INV-14 é a peça que não se resolve com prompt. Um modelo "generoso" que escreva
-"você cumpriu 9 dos 12" quando o cálculo diz 8 de 12 passa por qualquer revisão
-de estilo; o guarda extrai os numerais do texto e reprova o que não estiver no
-relatório. A defesa é do código, não da instrução.
-
-Por que o MCP é para assistente **externo** e não para a própria API se
-consultar: o servidor MCP e o cliente MCP seriam o mesmo processo, e a API
-passaria a chamar a si mesma pelo protocolo. As tools existem para o Claude
-Desktop/Code ler hábitos e estatísticas — nenhuma delas escreve.
+INV-14 não se resolve com prompt: um modelo que escreva "9 dos 12" quando o
+cálculo diz 8 de 12 passa por qualquer revisão de estilo. O guarda extrai os
+numerais e reprova o que não está no relatório — e o que ele **não** prova está
+declarado em `narration.guard.ts`. O MCP é para assistente **externo**: servidor e
+cliente no mesmo processo fariam a API chamar a si mesma pelo protocolo. Detalhes
+em `docs/IA.md`.
 
 ### Contrato com os clientes
 
@@ -99,12 +96,10 @@ npm run lint              # --max-warnings=0
 npm run test:unit
 ```
 
-Três armadilhas que já custaram tempo, detalhadas em `docs/DECISOES.md`:
-
-- **`npm run build` passa com erro de tipo** — `tsup` não typecheca. Rode `tsc --noEmit`.
-- **`src/mcp/tools.ts` importa de `zod/v4`**, não de `zod`, senão o `tsc` estoura o heap.
-- **Migração precisa estar rastreada E atualizada** — a checagem 8 do gate confere
-  disco vs índice; `check:schema-drift` confere migrações vs `schema.prisma`.
+Três armadilhas, detalhadas em `docs/DECISOES.md`: `npm run build` passa com erro
+de tipo (`tsup` não typecheca — rode `tsc --noEmit`); `src/mcp/tools.ts` importa de
+`zod/v4` ou o `tsc` estoura o heap; e migração precisa estar rastreada **e**
+atualizada — checagem 8 do gate mais `check:schema-drift`.
 
 **Camada 2 — exige PostgreSQL.** Apaga as três tabelas antes de cada teste, então
 roda em banco **separado** (`habits_test`, de `.env.test`), e `tests/setup.ts`
@@ -163,6 +158,12 @@ Camadas 2 e 3 são executáveis.
 - Invariante nova entra na tabela acima **com** o arquivo onde vive.
 - Toda invariante tem também um teste **adversário**: um que tenta violá-la e
   exige que seja barrada. Teste de caminho feliz não prova fronteira.
+- **Verificação nova tem caso vizinho.** Depois de escrever um gate, uma trava ou
+  um guarda, construa o caso que ele **deveria** pegar e veja-o pegar — não o caso
+  que motivou escrevê-lo, que já passa por construção. "Toda invariante tem teste
+  adversário" vale para os gates também, e é onde ninguém pensa em aplicar: gate
+  não é código de produção. Nove defeitos desta safra eram verificações que
+  funcionavam no caso de origem e olhavam para a metade errada.
 - O fluxo manual continua funcionando sem `ANTHROPIC_API_KEY`.
 - Nenhum teste aponta para banco fora de `*_test`.
 - O relatório final declara qual camada rodou e qual não rodou, com o motivo.
