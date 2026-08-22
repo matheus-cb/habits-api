@@ -84,6 +84,11 @@ Estado real, medido. Item desmarcado é lacuna conhecida, não esquecimento.
       não roda em várias instâncias sem uma chave em comum.
 - [ ] **Números por extenso.** O guarda lê dígitos; "oito de doze" escapa dele. O
       prompt exige algarismos, e essa é a única defesa nesse caso.
+- [ ] **Presença em vez de relação.** O guarda pergunta se o número existe no
+      relatório, não se a afirmação é verdadeira: "9 de 12" passa se 9 e 12
+      estiverem em campos sem ligação. O caminho que fecha isso está desenhado em
+      `docs/IA.md` → "O caminho que fecha (1)", com a tabela de pertinência que a
+      garantia exige — e **não** é uma regra melhor sobre o texto.
 
 ## Testes e CI
 

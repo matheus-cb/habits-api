@@ -82,6 +82,58 @@ Duas decisões de calibragem que valem registro:
   essa lista honesta: se um campo novo entrar no relatório e não for admitido, o
   próprio piso da camada deixa de passar e o teste cai.
 
+## O caminho que fecha (1) — desenhado, não implementado
+
+Registrado porque a conclusão é contraintuitiva e morreria com a sessão.
+
+A saída **não** é uma regra melhor sobre o texto. Validar linguagem natural com
+expressão regular é corrida perdida: o modelo escreve "8 dos 12", inverte a
+ordem, intercala uma oração, e qualquer regra de pares perde para paráfrase.
+
+A saída é **structured output**: o modelo devolve campos tipados e o código monta
+a frase. Algo como
+`{ focoHabitId, angulo, destaques: [{ campo, habitId }], tom }` — **nenhum
+número no schema**, só referências a campos do relatório, que o código resolve.
+Aí número errado deixa de ser improvável por verificação e passa a ser impossível
+por construção, e este guarda vira rede em vez de fronteira única.
+
+Isso não reduz o papel do modelo, muda o lugar dele: escolher qual hábito merece
+a frase e qual ênfase dar é julgamento, e é a parte que código determinístico não
+faz bem. Concatenar números em português é a parte que código faz melhor e com
+garantia — o `DeterministicNarrator` já prova isso.
+
+### E o furo que reaparece um nível acima
+
+Enum fechado garante que o valor é um dos previstos. **Não garante que ele é
+verdadeiro sobre o relatório.** O modelo devolve `angulo: 'risco'` para um hábito
+sem nenhuma sequência em risco, o código monta uma frase impecável com números
+corretos resolvidos por referência, e ela afirma um risco que não existe. Nenhuma
+verificação numérica pega, porque não há número errado.
+
+É o mesmo defeito deste guarda — presença em vez de relação — reaparecendo dentro
+da solução dele. O mesmo vale para `destaques`: o par pode ser resolvível e
+irrelevante, como `bestStreak` de um hábito abandonado.
+
+Então a garantia não está no schema; está na **tabela de combinações que o código
+recusa**:
+
+| Combinação | Só é aceitável se |
+|---|---|
+| `angulo: 'risco'` | `habits.some((h) => h.streakAtRisk)` |
+| `angulo: 'consistencia'` | há hábito com `scheduledDaysInWindow > 0` |
+| `angulo: 'extras'` | `habits.some((h) => h.extraCheckins > 0)` |
+| `destaque` em `bestStreak` | o hábito tem `bestStreak > currentStreak` |
+| `focoHabitId` | existe no relatório **e** é avaliável |
+
+Validação de **pertinência**, não de formato: dez a quinze linhas de guarda sobre
+um objeto tipado, e cada recusa vira caso testável em vez de julgamento. O
+fallback fica trivial — enum recusado cai no ângulo que o motor determinístico
+escolheria de todo modo.
+
+**A ordem de implementação importa:** escrever primeiro a tabela de combinações
+inválidas, e só depois o schema. A tabela é o que define a garantia; o schema é a
+forma de expressá-la.
+
 **Limite conhecido:** o guarda lê dígitos. Um modelo que escreva "oito de doze"
 por extenso escapa dele. Por isso o prompt exige algarismos para toda
 quantidade — a exigência é parte da defesa, não estilo. Não é uma defesa

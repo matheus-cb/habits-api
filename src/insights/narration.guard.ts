@@ -38,9 +38,19 @@ import { AdherenceReport } from './adherence.types';
  *    de contagem, e isso é verdade; as afirmações qualitativas do texto redigido
  *    não são verificadas por ninguém.
  *
- * Fechar (1) exigiria checar relação, não presença — algo como exigir que pares
- * "a de b" correspondam a `completedInWindow`/`scheduledDaysInWindow` do mesmo
- * hábito. É a próxima melhoria óbvia e não está feita.
+ * ## Por onde NÃO fechar (1)
+ *
+ * A primeira versão deste comentário dizia que a próxima melhoria óbvia era
+ * exigir que pares "a de b" correspondessem a
+ * `completedInWindow`/`scheduledDaysInWindow` do mesmo hábito. **Está errado**, e
+ * fica registrado porque é o caminho que qualquer um tentaria: o modelo escreve
+ * "8 dos 12", inverte a ordem, intercala uma oração — e a regra de pares perde
+ * para paráfrase. O guarda cresceria sem nunca fechar.
+ *
+ * O caminho é outro: parar de validar linguagem natural e restringir o modelo a
+ * um contrato tipado, com o código montando o texto — ver `docs/IA.md`, seção
+ * "O caminho que fecha (1)". Não está implementado, e depende de decisão de
+ * escopo.
  */
 
 export interface NarrationVerdict {
