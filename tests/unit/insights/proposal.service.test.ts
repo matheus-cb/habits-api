@@ -216,6 +216,80 @@ describe('INV-19 — a proposta é sugestão, não autorização', () => {
   });
 });
 
+describe('INV-19 — a proposta caduca se o agendamento mudar por outro caminho', () => {
+  it('INV-19: adversário — agendamento editado à mão entre propor e confirmar responde 409', async () => {
+    // O caso que `currentScheduledDays` existia para cobrir e não cobria: às 10h00
+    // a proposta nasce para [1,3,5] → [1,3]; às 10h03 a pessoa edita à mão para
+    // [0,6]; às 10h07 confirma, ainda no prazo. Sem esta checagem o hábito voltava
+    // para [1,3] e a edição manual era apagada sem aviso.
+    const { token } = service.sign(USER_ID, plan);
+    mockHabitsRepository.findById.mockResolvedValueOnce({
+      ...habitGravado,
+      scheduledDays: [0, 6],
+    });
+
+    await expect(service.confirm(USER_ID, token)).rejects.toMatchObject({
+      statusCode: 409,
+      message: expect.stringContaining('mudou depois'),
+    });
+    expect(mockHabitsRepository.update).not.toHaveBeenCalled();
+  });
+
+  it('INV-19: 409 e não 400 — a proposta não é inválida, só ficou obsoleta', async () => {
+    // A distinção importa para o cliente: 400 sugere pedido malformado e não deve
+    // ser repetido; 409 diz "peça uma nova sugestão", que é a ação correta.
+    const { token } = service.sign(USER_ID, plan);
+    mockHabitsRepository.findById.mockResolvedValueOnce({
+      ...habitGravado,
+      scheduledDays: [2],
+    });
+
+    await expect(service.confirm(USER_ID, token)).rejects.toMatchObject({ statusCode: 409 });
+  });
+
+  it('INV-19: mesma ordem diferente não é considerada mudança', async () => {
+    // O banco pode devolver [5,1,3] onde a proposta gravou [1,3,5]. Comparar sem
+    // ordenar transformaria ordem de coluna em conflito espúrio, e a pessoa não
+    // conseguiria confirmar nunca.
+    const { token } = service.sign(USER_ID, { ...plan, currentScheduledDays: [1, 3, 5] });
+    arrangeHabit({ scheduledDays: [5, 1, 3] });
+
+    await expect(service.confirm(USER_ID, token)).resolves.toMatchObject({
+      scheduledDays: [1, 3],
+    });
+  });
+
+  it('INV-19: adversário — o campo é lido de verdade, não só transportado', async () => {
+    // Guarda contra regressão silenciosa: se alguém remover a comparação, este
+    // caso volta a passar quando deveria falhar. Aqui o hábito mudou e a proposta
+    // NÃO pode ser aplicada — se `update` for chamado, a checagem sumiu.
+    const { token } = service.sign(USER_ID, plan);
+    mockHabitsRepository.findById.mockResolvedValueOnce({
+      ...habitGravado,
+      scheduledDays: [],
+    });
+
+    await service.confirm(USER_ID, token).catch(() => undefined);
+    expect(mockHabitsRepository.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('INV-18 — a chave de assinatura sobrevive a restart', () => {
+  it('INV-18: um token assinado é verificável por outra instância do serviço', async () => {
+    // A chave é derivada do JWT_SECRET por HKDF, não sorteada por processo. Duas
+    // instâncias do serviço no mesmo ambiente têm de aceitar o token da outra —
+    // sem isso a API não roda com mais de uma réplica, e a proposta morria a cada
+    // restart.
+    const outraInstancia = new ProposalService(mockHabitsRepository as never);
+    const { token } = service.sign(USER_ID, plan);
+    arrangeHabit();
+
+    await expect(outraInstancia.confirm(USER_ID, token)).resolves.toMatchObject({
+      scheduledDays: [1, 3],
+    });
+  });
+});
+
 describe('INV-18 — o motor decide os dias, não o modelo', () => {
   it('INV-18: buildProposals só devolve plano para hábito com sinal', () => {
     const report = {

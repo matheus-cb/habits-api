@@ -54,12 +54,17 @@ done
 
 # 7. Esta o NotaFlow não tem, e é a que mais custou aqui: invariante declarada
 #    sem teste que a cite é invariante decorativa. O AGENTS.md manda usar o
-#    número no nome do teste — então o número tem de aparecer em tests/.
-#    Sem esta checagem, a tabela cresce e a cobertura não.
+#    número no NOME do teste — então é isso que se verifica.
+#
+#    A primeira versão usava `grep -rqF "$inv" tests/`, e um comentário
+#    `// INV-14: ver adiante` a satisfazia. Provar menção não é provar teste — é
+#    a mesma fraqueza que o guarda de INV-14 existe para não ter. Agora o padrão
+#    exige a forma `it('INV-nn` ou `describe('INV-nn`, com aspas simples ou
+#    duplas, que é a única forma que aparece num relatório de teste.
 if [ -d tests ]; then
   faltando=""
   while read -r inv; do
-    grep -rqF "$inv" tests/ || faltando="$faltando $inv"
+    grep -rqE "(it|test|describe)\(['\"]$inv" tests/ || faltando="$faltando $inv"
   done < <(grep -oE 'INV-[0-9]{2}' AGENTS.md | sort -u)
 
   # INV-20 a INV-24 vivem nos clientes; os testes delas estão nos outros repos.

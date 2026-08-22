@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
+import { env } from '@/config/env';
 import { HabitsRepository } from '@/repositories/habits.repository';
-import { BadRequestError, ForbiddenError, NotFoundError } from '@/utils/errors';
+import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from '@/utils/errors';
 import { AdherenceReport } from './adherence.types';
 import { planReschedule, ReschedulePlan } from './reschedule.engine';
 
@@ -17,14 +18,25 @@ import { planReschedule, ReschedulePlan } from './reschedule.engine';
  * hábito puder induzir uma chamada — e título de hábito é entrada do usuário —,
  * a confirmação tem de ser controle de **servidor**. É INV-18 e INV-19.
  *
- * A chave é sorteada por processo: uma proposta não sobrevive a restart, o que é
- * desejável para algo que vale dez minutos. Isso também significa que a API não
- * pode rodar em várias instâncias sem uma chave compartilhada — registrado aqui
- * porque é uma limitação real, não um detalhe.
+ * A chave é DERIVADA do `JWT_SECRET` por HKDF, não sorteada por processo.
+ *
+ * A primeira versão usava `randomBytes` por processo, e isso quebrava duas
+ * coisas: a proposta morria a cada restart, e a API não podia rodar em mais de
+ * uma instância — a segunda instância recusaria toda proposta assinada pela
+ * primeira. Estava declarado como "limitação real", e declarar uma limitação que
+ * tem correção de três linhas é pior do que não tê-la.
+ *
+ * O `JWT_SECRET` já é obrigatório e validado com mínimo de 32 caracteres em
+ * `config/env.ts`, então não há variável nova para configurar em produção. O
+ * `info` do HKDF separa o domínio: esta chave não serve para assinar token de
+ * sessão, e a de sessão não serve para assinar proposta, mesmo vindo do mesmo
+ * segredo. Trocar o `JWT_SECRET` invalida as propostas em voo, o que é correto.
  */
 
 const VALIDADE_MS = 10 * 60 * 1000;
-const CHAVE_DE_ASSINATURA = crypto.randomBytes(32);
+const CHAVE_DE_ASSINATURA = Buffer.from(
+  crypto.hkdfSync('sha256', env.JWT_SECRET, '', 'habits:reschedule-proposal:v1', 32)
+);
 
 interface PropostaAssinada {
   userId: string;
@@ -111,6 +123,26 @@ export class ProposalService {
     }
     if (habit.userId !== userId) {
       throw new ForbiddenError('You do not have access to this habit');
+    }
+
+    // INV-19: travamento otimista sobre o agendamento.
+    //
+    // `currentScheduledDays` viaja assinado no token desde a primeira versão e
+    // NÃO era lido — dado assinado e ignorado, que é pior do que dado ausente.
+    //
+    // O caso que isso abre: às 10h00 a proposta nasce para [1,3,5] → [2,4]; às
+    // 10h03 a pessoa edita o hábito à mão para [0,6]; às 10h07 confirma a
+    // proposta, ainda dentro dos dez minutos, e o hábito volta para [2,4] — uma
+    // decisão tomada sobre um estado que já não existe, apagando a edição
+    // manual sem aviso.
+    //
+    // 409 e não 400: não há nada de inválido na proposta, ela só ficou obsoleta.
+    const atual = [...(habit.scheduledDays ?? [])].sort((a, b) => a - b);
+    const naProposta = [...payload.currentScheduledDays].sort((a, b) => a - b);
+    if (atual.length !== naProposta.length || atual.some((dia, i) => dia !== naProposta[i])) {
+      throw new ConflictError(
+        'O agendamento deste hábito mudou depois que a sugestão foi gerada. Peça uma nova.'
+      );
     }
 
     // Revalidação de formato: o motor produz conjunto válido, mas o confirm não

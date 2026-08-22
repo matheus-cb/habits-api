@@ -4,11 +4,13 @@ import {
   AdherenceNarration,
   AdherenceReport,
   FallbackReason,
+  HabitAdherence,
 } from './adherence.types';
 import { AdherenceService } from './adherence.service';
 import { NarrationFailure, Narrator } from './narrator';
 import { DeterministicNarrator } from './narrator.deterministic';
 import { ProposalService, RescheduleProposal, RescheduleResult } from './proposal.service';
+import { ReschedulePlan } from './reschedule.engine';
 
 /**
  * Orquestra a camada de insights.
@@ -22,6 +24,20 @@ import { ProposalService, RescheduleProposal, RescheduleResult } from './proposa
  * que o teste possa provar que ele é usado — provar o fallback é mais importante
  * do que economizar um parâmetro.
  */
+/**
+ * Teto de propostas redigidas por requisição.
+ *
+ * Sem ele, `getProposals` chamava o modelo uma vez por proposta, em série: um
+ * usuário com 8 hábitos em risco custava 8 chamadas e, com `AI_TIMEOUT_MS` em
+ * 20s, até 160 segundos numa única requisição HTTP. Era o vetor de custo real da
+ * camada, e sem registro de execução ninguém saberia que aconteceu.
+ *
+ * 5 é escolha de produto, não técnica: mais de cinco sugestões de reagendamento
+ * de uma vez não é ajuda, é lista de tarefas. As demais propostas continuam na
+ * resposta — só a justificativa delas vem do redator determinístico.
+ */
+const MAXIMO_DE_JUSTIFICATIVAS_POR_MODELO = 5;
+
 export class InsightsService {
   constructor(
     private adherence: AdherenceService,
@@ -41,27 +57,47 @@ export class InsightsService {
     const report = await this.adherence.buildReport(userId);
     const plans = this.proposals.buildProposals(report);
 
-    const resultado: RescheduleProposal[] = [];
-    for (const plan of plans) {
-      const habit = report.habits.find((item) => item.habitId === plan.habitId);
-      // O plano nasce de um hábito do relatório; a checagem é defensiva contra
-      // uma refatoração futura que desconecte as duas listas.
-      if (!habit) continue;
+    // O plano nasce de um hábito do relatório; o filtro é defensivo contra uma
+    // refatoração futura que desconecte as duas listas.
+    const comHabito = plans
+      .map((plan) => ({ plan, habit: report.habits.find((h) => h.habitId === plan.habitId) }))
+      .filter((item): item is { plan: ReschedulePlan; habit: HabitAdherence } =>
+        Boolean(item.habit)
+      );
 
-      const { token, expiresAt } = this.proposals.sign(userId, plan);
-      const { text, source } = await this.narrateProposal({ plan, habit, report });
+    // Ordena pela pior aderência: se houver teto, o modelo redige onde importa
+    // mais, e não o que o relatório devolveu primeiro.
+    const ordenados = [...comHabito].sort(
+      (a, b) =>
+        a.habit.completionRate - b.habit.completionRate ||
+        a.habit.title.localeCompare(b.habit.title)
+    );
+    const comModelo = new Set(
+      ordenados.slice(0, MAXIMO_DE_JUSTIFICATIVAS_POR_MODELO).map((item) => item.plan.habitId)
+    );
 
-      resultado.push({
-        ...plan,
-        title: habit.title,
-        rationale: text,
-        rationaleSource: source,
-        expiresAt: expiresAt.toISOString(),
-        token,
-      });
-    }
+    // Em paralelo, não em série. As chamadas são independentes: em série, o
+    // tempo era a SOMA dos timeouts; aqui é o maior deles.
+    return Promise.all(
+      comHabito.map(async ({ plan, habit }) => {
+        const { token, expiresAt } = this.proposals.sign(userId, plan);
+        const { text, source } = comModelo.has(plan.habitId)
+          ? await this.narrateProposal({ plan, habit, report })
+          : {
+              text: await this.fallback.narrateProposal({ plan, habit, report }),
+              source: this.fallback.source,
+            };
 
-    return resultado;
+        return {
+          ...plan,
+          title: habit.title,
+          rationale: text,
+          rationaleSource: source,
+          expiresAt: expiresAt.toISOString(),
+          token,
+        };
+      })
+    );
   }
 
   async confirmProposal(userId: string, token: string): Promise<RescheduleResult> {

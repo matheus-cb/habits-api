@@ -67,6 +67,19 @@ export class AnthropicNarrator implements Narrator {
       throw new NarrationFailure('AI_REFUSED');
     }
 
+    // Truncamento também vem como 200, e é o modo de falha mais traiçoeiro
+    // desta camada: o guarda numérico NÃO pega texto cortado, porque os números
+    // que sobraram são todos legítimos. Uma frase interrompida no meio chega ao
+    // usuário como se fosse o resumo.
+    //
+    // E não é hipotético no modelo padrão: em `claude-opus-5` o thinking é
+    // adaptativo e vem LIGADO por omissão — diferente de Opus 4.8/4.7, onde
+    // omitir o parâmetro o desligava. Ele consome do mesmo `max_tokens`, que
+    // aqui vale 1024. Corte é plausível, não teórico.
+    if (response.stop_reason === 'max_tokens') {
+      throw new NarrationFailure('AI_TRUNCATED');
+    }
+
     const text = response.content
       .filter((block): block is Anthropic.TextBlock => block.type === 'text')
       .map((block) => block.text)
