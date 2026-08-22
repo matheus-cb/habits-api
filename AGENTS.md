@@ -91,6 +91,7 @@ roda em qualquer sandbox de agente.
 
 ```bash
 ./scripts/check-agent-docs.sh
+npm ci --dry-run          # valida peers como o CI faz; `npm install` não
 npx tsc --noEmit          # tsup NÃO checa tipo: só isto pega erro de tipo
 npm run lint              # --max-warnings=0
 npm run test:unit
@@ -101,9 +102,9 @@ de tipo (`tsup` não typecheca — rode `tsc --noEmit`); `src/mcp/tools.ts` impo
 `zod/v4` ou o `tsc` estoura o heap; e migração precisa estar rastreada **e**
 atualizada — checagem 8 do gate mais `check:schema-drift`.
 
-**Camada 2 — exige PostgreSQL.** Apaga as três tabelas antes de cada teste, então
-roda em banco **separado** (`habits_test`, de `.env.test`), e `tests/setup.ts`
-**recusa** qualquer banco cujo nome não termine em `_test`.
+**Camada 2 — exige PostgreSQL.** Apaga as três tabelas, então roda em banco
+**separado** (`habits_test`, de `.env.test`); `tests/setup.ts` recusa qualquer nome
+que não termine em `_test`.
 
 ```bash
 npm run docker:up
@@ -121,24 +122,21 @@ docker compose up --detach --build --wait
 ./scripts/smoke.sh
 ```
 
-O smoke vive em `scripts/smoke.sh`, não embutido no workflow, para haver **uma
-cópia** — rodável no CI e aqui. Embutir no YAML garante duas versões divergindo
-em silêncio.
+O smoke vive em `scripts/smoke.sh`, não no workflow: **uma cópia**, rodável nos
+dois lugares. Embutir no YAML garante duas versões divergindo em silêncio.
 
 **Camada 3.5 — o repositório reproduz?** As outras testam o código; esta testa o
-**repositório**. `git archive HEAD` entrega só o rastreado, sobe em projeto e
-porta próprios, e roda o smoke contra o clone. Fora do CI de propósito: lá todo
-checkout já é clone limpo. Ver `docs/DECISOES.md`.
+**repositório**, via `git archive HEAD`. Fora do CI de propósito: lá todo checkout
+já é clone limpo. Ver `docs/DECISOES.md`.
 
 ```bash
 npm run verify:repro
 ```
 
-`npm run verify` roda a Camada 1 e tenta as outras duas. O que não puder rodar
-**avisa em vez de falhar**, mas o script sai com **código 3**, para que automação
-que só lê o exit status não confunda "pulou" com "passou". A Camada 3 não sobe a
-stack sozinha: `docker compose up --build` leva minutos e derrubar o que já
-estava rodando seria surpresa desagradável.
+`npm run verify` roda a Camada 1 e tenta as outras. O que não puder rodar **avisa
+em vez de falhar** e o script sai com **código 3**, para automação não confundir
+"pulou" com "passou". A Camada 3 não sobe a stack sozinha — leva minutos e
+derrubaria a de quem chamou.
 
 ### Ferramentas exigidas
 
