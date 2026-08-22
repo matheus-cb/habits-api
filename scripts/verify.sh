@@ -41,13 +41,26 @@ else
 fi
 
 echo ""
+echo "== Camada 3 — sobe a stack e bate nela por HTTP"
+# Não sobe a stack sozinho: `docker compose up --build` leva minutos e derrubar o
+# que já estava rodando na máquina de quem chamou seria surpresa desagradável.
+# Se a stack estiver de pé, roda; senão, diz como subir.
+if ! command -v jq >/dev/null 2>&1; then
+  pulou="${pulou:+$pulou }Camada 3: jq não instalado."
+elif ! curl --silent --fail --max-time 3 "${SMOKE_BASE_URL:-http://127.0.0.1:3333}/health" >/dev/null 2>&1; then
+  pulou="${pulou:+$pulou }Camada 3: stack não está de pé. Rode: docker compose up --detach --build --wait"
+else
+  passo ./scripts/smoke.sh
+fi
+
+echo ""
 if [ "$falhou" -ne 0 ]; then
   echo "RESULTADO: falhou." >&2
   exit 1
 fi
 
 if [ -n "$pulou" ]; then
-  echo "RESULTADO: Camada 1 passou; $pulou" >&2
+  echo "RESULTADO: o que rodou passou; $pulou" >&2
   exit 3
 fi
 

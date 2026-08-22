@@ -120,9 +120,36 @@ npm run db:test:create && npm run db:test:migrate
 npm run test:integration
 ```
 
-`npm run verify` roda a Camada 1 e tenta a 2. Sem banco ela **avisa em vez de
-falhar**, mas o script sai com **código 3**, para que automação que só lê o exit
-status não confunda "pulou" com "passou".
+**Camada 3 — exige a stack de pé.** Sobe a imagem e bate nela por HTTP. É a única
+camada que prova que o **container funciona**: o Dockerfile deste repositório
+produzia um container em loop de reinício e nada percebia, porque nada no gate
+subia a stack.
+
+```bash
+docker compose up --detach --build --wait
+./scripts/smoke.sh
+```
+
+O smoke vive em `scripts/smoke.sh`, não embutido no workflow, para haver **uma
+cópia** — rodável no CI e aqui. Embutir no YAML garante duas versões divergindo
+em silêncio.
+
+`npm run verify` roda a Camada 1 e tenta as outras duas. O que não puder rodar
+**avisa em vez de falhar**, mas o script sai com **código 3**, para que automação
+que só lê o exit status não confunda "pulou" com "passou". A Camada 3 não sobe a
+stack sozinha: `docker compose up --build` leva minutos e derrubar o que já
+estava rodando seria surpresa desagradável.
+
+### Ferramentas exigidas
+
+| Ferramenta | Versão | Como conferir |
+|---|---|---|
+| Node | **22** (o do CI) | `node --version` |
+| Docker | daemon **em execução**, não só o cliente | `docker info` |
+| `jq` | qualquer | `jq --version` |
+
+`docker --version` responde com o daemon desligado. Só `docker info` prova que as
+Camadas 2 e 3 são executáveis.
 
 ## Definição de pronto
 
@@ -133,10 +160,12 @@ status não confunda "pulou" com "passou".
 - O fluxo manual continua funcionando sem `ANTHROPIC_API_KEY`.
 - Nenhum teste aponta para banco fora de `*_test`.
 - O relatório final declara qual camada rodou e qual não rodou, com o motivo.
+- Rota nova que mude estado ou exponha dado entra no `scripts/smoke.sh`.
 
 ## Risco e revisão
 
 - **Baixo:** texto, documentação, Swagger. Gates automáticos bastam.
 - **Médio:** CRUD, schemas Zod, contratos de resposta. Revisar contrato e teste.
-- **Alto:** migrations, cálculo de aderência, autenticação e **toda a camada de
-  IA**. Revisão humana integral; use plan mode antes de editar.
+- **Alto:** migrations, cálculo de aderência, autenticação, **toda a camada de
+  IA**, e `Dockerfile`/`docker-compose.yml` — a imagem só é exercitada pela
+  Camada 3. Revisão humana integral; use plan mode antes de editar.

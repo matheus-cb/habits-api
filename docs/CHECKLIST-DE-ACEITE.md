@@ -6,6 +6,8 @@ Estado real, medido. Item desmarcado é lacuna conhecida, não esquecimento.
 
 - [x] `.env.example` pode ser copiado sem conter segredo real.
 - [x] `docker compose config --quiet` passa.
+- [x] `docker compose up --build --wait` deixa a stack saudável — a imagem sobe,
+      as migrações são aplicadas e o healthcheck fica verde.
 - [x] `npm run docker:up && npm run prisma:migrate` deixa o banco pronto.
 - [x] A API sobe e funciona **sem** `ANTHROPIC_API_KEY`.
 - [x] Nenhuma variável de IA é obrigatória no schema Zod do ambiente.
@@ -72,9 +74,12 @@ Estado real, medido. Item desmarcado é lacuna conhecida, não esquecimento.
 - [x] `tsc --noEmit` é passo separado — `tsup` não checa tipo.
 - [x] `npm run lint` com `--max-warnings=0`.
 - [x] Cada invariante tem também um caso **adversário**, que tenta violá-la.
-- [x] CI: `agent-docs`, `camada-1`, `camada-2` (com serviço Postgres) e `build`.
+- [x] Camada 3 sobe a stack (`docker compose --wait`) e bate nela por HTTP.
+- [x] CI: `agent-docs`, `camada-1`, `camada-2`, `smoke` e `build`.
+- [x] O smoke tem **uma** cópia (`scripts/smoke.sh`), chamada pelo CI e rodável
+      localmente — em vez de setenta linhas de `curl` embutidas no YAML.
+- [x] Falha no smoke despeja os logs dos containers, e a stack é derrubada sempre.
 - [ ] **Sem deploy.** O gate é só de qualidade.
-- [ ] **Sem smoke HTTP** subindo a stack, como o `quality-gate` do NotaFlow faz.
 - [ ] **Sem teste de controller isolado.** Os controllers montam as próprias
       dependências no construtor, então não há como injetar dublê; eles são
       exercitados só pela Camada 2, via HTTP. `InsightsController` é a exceção.

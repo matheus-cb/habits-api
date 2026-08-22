@@ -1,8 +1,8 @@
-version: '3.8'
+# `version:` foi removido: é obsoleto no Compose v2 e só gera aviso.
 
 services:
   postgres:
-    image: postgres:15-alpine
+    image: postgres:16-alpine
     container_name: habits-postgres
     restart: unless-stopped
     ports:
@@ -13,6 +13,13 @@ services:
       POSTGRES_DB: habits
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    # Sem healthcheck, `depends_on` só espera o container EXISTIR, não o Postgres
+    # aceitar conexão — e `docker compose up --wait` não tem o que aguardar.
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d habits']
+      interval: 5s
+      timeout: 3s
+      retries: 10
     networks:
       - habits-network
 
@@ -27,15 +34,22 @@ services:
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/habits?schema=public
-      JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key}
+      # O default anterior tinha 25 caracteres e o Zod exige 32: mesmo com o
+      # engine do Prisma correto, a API se recusava a subir. Um default que não
+      # passa na própria validação é pior do que nenhum default.
+      JWT_SECRET: ${JWT_SECRET:?defina JWT_SECRET com no minimo 32 caracteres}
       JWT_EXPIRES_IN: 7d
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Deliberadamente repassada vazia quando ausente: a stack tem de subir e
+      # funcionar sem provedor de IA (INV-15), e o smoke verifica isso.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     networks:
       - habits-network
-    volumes:
-      - ./src:/app/src
-      - ./prisma:/app/prisma
+    # Sem montar ./src nem ./prisma: a imagem de produção roda `dist/`, e montar
+    # o TypeScript por cima só sombreava o conteúdo construído sem efeito nenhum.
 
 volumes:
   postgres_data:
