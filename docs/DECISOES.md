@@ -118,6 +118,61 @@ resolução de overload do `registerTool` fica profunda o bastante para **estour
 o heap do `tsc`** (TS2589), e o comando morre em vez de reportar erro. As duas
 APIs convivem no mesmo pacote, e esse é o único arquivo que fala com o SDK.
 
+## Camada 3.5: o repositório é uma propriedade separada do código
+
+As Camadas 1, 2 e 3 testam **o código**. Nenhuma testava **o repositório**.
+
+A diferença apareceu do pior jeito: `.gitignore` mantinha
+`prisma/migrations/**/migration.sql` fora do git. As três camadas passavam na
+estação de trabalho — os arquivos existem no disco — e o CI falhava, porque
+`prisma migrate deploy` num clone não encontrava migração nenhuma e **saía com
+código 0**. Container subia, reportava healthy, e devolvia 500 em toda rota de
+dado.
+
+Eu havia apresentado a Camada 3 como "a única coisa que prova que a imagem
+funciona". Ela prova que a imagem funciona **com o disco presente**. Que um clone
+produza a mesma coisa é outra propriedade, e nenhuma camada a cobria.
+
+`scripts/verify-repro.sh` usa `git archive HEAD`, que entrega exatamente o que um
+clone entrega: só o rastreado. Sobe em projeto e porta próprios — sem colidir com
+a stack de desenvolvimento — e roda o mesmo smoke contra o clone. Verificado que
+pega o defeito original: removendo as migrações do índice, ela falha na primeira
+checagem, antes de construir nada.
+
+Não está no CI porque lá todo checkout já é clone limpo. O que está no CI é a
+checagem 8 do `check-agent-docs.sh`, que compara migrações no disco com migrações
+no índice — a classe inteira pelo caminho mais barato, no job de 4 segundos.
+
+**Por que corrigir a classe e não o caso:** versionar os dois arquivos com
+`git add -f` deixaria a regra do `.gitignore` escondendo a próxima migração, que
+nasceria ignorada e sairia do commit sem aparecer no `git status`. E o modo de
+falha seria **pior** que o original: com migrações antigas rastreadas, o clone
+aplica o esquema desatualizado e sobe, falhando só no campo que existe num disco
+só. Trocar falha ruidosa por falha silenciosa é regressão disfarçada de correção.
+
+## O healthcheck consulta o banco
+
+`/health` respondia 200 checando só se o processo estava vivo. O container se
+declarou `healthy` para o `docker compose --wait` com zero tabelas: liveness
+vendido como readiness.
+
+Agora consulta `prisma.user.findFirst({ select: { id: true } })`, que prova
+conexão, tabela e coluna. `findFirst` e não `count()`: os dois provam o mesmo, mas
+`count()` é `SELECT COUNT(*)` e paga um scan da tabela inteira a cada chamada —
+num endpoint que orquestrador consulta a cada poucos segundos, para sempre.
+
+Tem timeout de 2s, porque banco que aceita conexão e não responde penduraria o
+`await` retendo a conexão em vez de devolver 503. Healthcheck que não responde
+rápido é healthcheck que falhou.
+
+**O que se perdeu:** o endpoint é público e sem limite de taxa, e agora cada
+chamada consome uma conexão do pool. Antes era `process.uptime()`, custo zero. Um
+flood trivial esgota o pool e derruba as rotas autenticadas. Isso muda o status do
+rate limit: ele deixou de ser paridade com a régua do NotaFlow e passou a ser
+**pré-requisito de duas correções já aplicadas** — esta e a paralelização de
+`getProposals`, que trocou latência somada por pressão de concorrência. Está
+registrado como lacuna em `docs/CHECKLIST-DE-ACEITE.md`.
+
 ## A IA nunca decide, e funciona sem chave
 
 Detalhado em [IA.md](IA.md). O resumo: o cálculo é determinístico e o modelo só

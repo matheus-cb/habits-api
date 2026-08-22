@@ -76,6 +76,18 @@ if [ -d tests ]; then
     falhar "invariante sem teste que a cite pelo número:$faltando. Ver 'Definição de pronto' no AGENTS.md."
 fi
 
+# 8. Migração no disco e fora do índice é esquema que só existe numa máquina.
+#    Foi assim que um clone limpo subiu sem nenhuma tabela: a regra do .gitignore
+#    escondia os arquivos, `migrate deploy` respondia "No migration found" e saía
+#    com código 0. Versionar os arquivos existentes fecha o caso; esta checagem
+#    fecha a CLASSE, que é a diferença entre corrigir e contornar.
+if [ -d prisma/migrations ]; then
+  no_disco="$(find prisma/migrations -name 'migration.sql' | wc -l | tr -d ' ')"
+  no_indice="$(git ls-files prisma/migrations | grep -c 'migration\.sql' || true)"
+  [ "$no_disco" = "$no_indice" ] ||
+    falhar "$no_disco migração(ões) no disco, $no_indice no git. Migração não rastreada é esquema que não reproduz."
+fi
+
 if [ "$falhas" -gt 0 ]; then
   echo "" >&2
   echo "$falhas verificação(ões) falharam. Ver AGENTS.md → 'Objetivo'." >&2

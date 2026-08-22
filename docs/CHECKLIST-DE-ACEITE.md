@@ -27,9 +27,12 @@ Estado real, medido. Item desmarcado é lacuna conhecida, não esquecimento.
       migração, `migrate deploy` respondia "No migration found" e **saía com
       sucesso**, e o banco ficava sem tabela. Foi o que derrubou a Camada 2 e o
       smoke na primeira execução do CI.
-- [x] `/health` consulta o banco. Antes respondia 200 com o processo vivo e zero
-      tabelas — o container se declarava `healthy` para o `--wait` sem conseguir
-      atender request nenhum.
+- [x] `/health` consulta o banco, com `findFirst` (tempo constante, não
+      `COUNT(*)`), timeout de 2s e envelope de **erro** no 503. Antes respondia 200
+      com o processo vivo e zero tabelas.
+- [x] **Camada 3.5** (`npm run verify:repro`): `git archive HEAD` → build →
+      migrate → smoke. Verificado que pega o defeito das migrações fora do índice.
+- [x] Checagem 8 do gate compara migrações no disco com as do índice.
 
 ## Segurança da suíte
 
@@ -71,7 +74,12 @@ Estado real, medido. Item desmarcado é lacuna conhecida, não esquecimento.
 - [x] Token de uma pessoa não é aplicável por outra, mesmo assinado.
 - [ ] **Auditoria de execução de IA.** Não há tabela de chamadas, custo ou
       tokens. O NotaFlow tem (`AiDraftRun`); aqui não.
-- [ ] **Limite de taxa** nos endpoints de insight.
+- [ ] **Limite de taxa.** Deixou de ser paridade com a régua e passou a ser
+      **pré-requisito de duas correções já aplicadas**: o `/health` agora consulta
+      o banco (endpoint público, sem limite, consumindo conexão do pool) e o
+      `getProposals` paralelizou (até 5 chamadas ao provedor por requisição).
+      As duas trocaram problema observável por pressão de concorrência, e a
+      defesa contra pressão de concorrência é a peça que não existe.
 - [ ] **Chave de assinatura compartilhada.** É sorteada por processo, então a API
       não roda em várias instâncias sem uma chave em comum.
 - [ ] **Números por extenso.** O guarda lê dígitos; "oito de doze" escapa dele. O

@@ -10,7 +10,7 @@ import { errorHandler } from './middlewares/error.middleware';
 import { setupSwagger } from './docs/swagger';
 import routes from './routes';
 import { createMcpRouter } from './mcp/server';
-import { successResponse } from './utils/response';
+import { errorResponse, successResponse } from './utils/response';
 
 const app: Express = express();
 
@@ -45,15 +45,19 @@ setupSwagger(app);
 // resposta é não.
 app.get('/health', async (_req, res) => {
   const database = await checkDatabase();
+  const corpo = {
+    status: database.ok ? 'healthy' : 'unhealthy',
+    database: database.ok ? 'up' : database.reason,
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+  };
 
-  return res.status(database.ok ? 200 : 503).json(
-    successResponse({
-      status: database.ok ? 'healthy' : 'unhealthy',
-      database: database.ok ? 'up' : database.reason,
-      timestamp: new Date().toISOString(),
-      uptime: process.uptime(),
-    })
-  );
+  // O 503 sai em envelope de ERRO, não de sucesso. Antes ia em
+  // `successResponse` com `status: 'unhealthy'` dentro — um cliente que confia no
+  // envelope leria sucesso enquanto o corpo dizia o contrário.
+  return database.ok
+    ? res.status(200).json(successResponse(corpo))
+    : res.status(503).json(errorResponse('unhealthy', JSON.stringify(corpo)));
 });
 
 // API Routes

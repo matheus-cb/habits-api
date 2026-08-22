@@ -99,20 +99,15 @@ npm run lint              # --max-warnings=0
 npm run test:unit
 ```
 
-Duas armadilhas que já custaram tempo aqui:
+Três armadilhas que já custaram tempo, detalhadas em `docs/DECISOES.md`:
 
-- **`npm run build` passa com erro de tipo.** `tsup` não typecheca. Havia doze
-  erros invisíveis no `src`, um deles uma chamada de service com dois argumentos
-  onde o método pede três. Rode `tsc --noEmit`, sempre.
-- **`src/mcp/tools.ts` importa de `zod/v4`, não de `zod`.** O SDK do MCP é tipado
-  contra a API v4. Com esquemas da v3 clássica, a resolução de overload do
-  `registerTool` fica profunda o bastante para **estourar o heap do `tsc`** —
-  TS2589, e o comando morre em vez de reportar. O resto do projeto segue na v3.
+- **`npm run build` passa com erro de tipo** — `tsup` não typecheca. Rode `tsc --noEmit`.
+- **`src/mcp/tools.ts` importa de `zod/v4`**, não de `zod`, senão o `tsc` estoura o heap.
+- **Migração precisa estar rastreada** — a checagem 8 do gate confere disco vs índice.
 
-**Camada 2 — exige PostgreSQL.** Ela apaga as três tabelas antes de cada teste,
-então roda em banco **separado** (`habits_test`, de `.env.test`). `tests/setup.ts`
-**recusa** rodar se o nome do banco não terminar em `_test` — a primeira versão
-usava o `.env` de desenvolvimento e apagaria dados reais em silêncio.
+**Camada 2 — exige PostgreSQL.** Apaga as três tabelas antes de cada teste, então
+roda em banco **separado** (`habits_test`, de `.env.test`), e `tests/setup.ts`
+**recusa** qualquer banco cujo nome não termine em `_test`.
 
 ```bash
 npm run docker:up
@@ -121,9 +116,8 @@ npm run test:integration
 ```
 
 **Camada 3 — exige a stack de pé.** Sobe a imagem e bate nela por HTTP. É a única
-camada que prova que o **container funciona**: o Dockerfile deste repositório
-produzia um container em loop de reinício e nada percebia, porque nada no gate
-subia a stack.
+que prova que o **container funciona** — o Dockerfile daqui já produziu container
+em loop de reinício sem nada perceber.
 
 ```bash
 docker compose up --detach --build --wait
@@ -133,6 +127,15 @@ docker compose up --detach --build --wait
 O smoke vive em `scripts/smoke.sh`, não embutido no workflow, para haver **uma
 cópia** — rodável no CI e aqui. Embutir no YAML garante duas versões divergindo
 em silêncio.
+
+**Camada 3.5 — o repositório reproduz?** As outras testam o código; esta testa o
+**repositório**. `git archive HEAD` entrega só o rastreado, sobe em projeto e
+porta próprios, e roda o smoke contra o clone. Fora do CI de propósito: lá todo
+checkout já é clone limpo. Ver `docs/DECISOES.md`.
+
+```bash
+npm run verify:repro
+```
 
 `npm run verify` roda a Camada 1 e tenta as outras duas. O que não puder rodar
 **avisa em vez de falhar**, mas o script sai com **código 3**, para que automação
@@ -147,6 +150,7 @@ estava rodando seria surpresa desagradável.
 | Node | **22** (o do CI) | `node --version` |
 | Docker | daemon **em execução**, não só o cliente | `docker info` |
 | `jq` | qualquer | `jq --version` |
+| `git archive` | do próprio git | `git archive --format=tar HEAD \| tar -t \| head -1` |
 
 `docker --version` responde com o daemon desligado. Só `docker info` prova que as
 Camadas 2 e 3 são executáveis.
@@ -161,6 +165,8 @@ Camadas 2 e 3 são executáveis.
 - Nenhum teste aponta para banco fora de `*_test`.
 - O relatório final declara qual camada rodou e qual não rodou, com o motivo.
 - Rota nova que mude estado ou exponha dado entra no `scripts/smoke.sh`.
+- Arquivo novo que a aplicação precise para subir está **rastreado** — a Camada
+  3.5 é o que prova, e a checagem 8 do gate é o que impede a regressão.
 
 ## Risco e revisão
 
