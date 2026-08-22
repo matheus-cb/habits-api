@@ -37,6 +37,9 @@ if [ ! -f .env.test ]; then
 elif ! npx --no-install dotenv -e .env.test -- prisma migrate status >/dev/null 2>&1; then
   pulou="Camada 2: banco de teste inalcançável. Rode: npm run docker:up && npm run db:test:create && npm run db:test:migrate"
 else
+  # Antes dos testes: se o esquema derivou, os testes rodam contra um banco que
+  # não é o que o código espera, e a falha aparece disfarçada de bug de domínio.
+  passo ./scripts/check-schema-drift.sh
   passo npm run test:integration
 fi
 

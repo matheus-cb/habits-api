@@ -69,6 +69,18 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx prisma migrate deploy
+      # O banco shadow existe só para o `migrate diff` aplicar as migrações e
+      # comparar com o schema.prisma. Nunca recebe dado de teste.
+      - name: Criar banco shadow
+        run: PGPASSWORD=postgres psql -h localhost -U postgres -c 'CREATE DATABASE habits_shadow'
+      # Fecha a classe que a checagem 8 do gate não alcança: migração rastreada
+      # mas DESATUALIZADA. Um schema.prisma editado sem migração deixa o clone
+      # subir com o esquema antigo, e o erro só aparece na primeira query que
+      # toca a coluna ausente.
+      - name: Drift de esquema
+        env:
+          DATABASE_URL_SHADOW: postgresql://postgres:postgres@localhost:5432/habits_shadow?schema=public
+        run: ./scripts/check-schema-drift.sh
       - run: npm run test:integration
 
   build:

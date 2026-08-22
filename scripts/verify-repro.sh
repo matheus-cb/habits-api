@@ -14,6 +14,13 @@
 # `git archive HEAD` entrega exatamente o que um clone entrega: só o rastreado.
 # Nada de `.env`, nada de arquivo ignorado, nada de working tree sujo.
 #
+# A stack do clone sobe com `STACK_PREFIX`, `POSTGRES_PORT` e `API_PORT`, que o
+# `docker-compose.yml` interpola. A versão anterior editava o compose do clone com
+# dois `sed`, e isso era errado por dois motivos: `sed` sobre YAML quebra em
+# qualquer reformatação válida — um comentário entre a chave `ports:` e o item já
+# derrotava o padrão, silenciosamente — e a camada que existe para testar o
+# repositório não pode mexer no repositório antes de testá-lo.
+#
 # Uso: ./scripts/verify-repro.sh
 set -uo pipefail
 
@@ -21,12 +28,30 @@ repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo"
 
 destino="${REPRO_DIR:-/tmp/habits-api-repro}"
-projeto="habits-repro"
+projeto="${REPRO_PROJECT:-habits-repro}"
 porta="${REPRO_PORT:-3399}"
+porta_db="${REPRO_POSTGRES_PORT:-55432}"
 
 vermelho=$'\033[31m'
 verde=$'\033[32m'
 reset=$'\033[0m'
+
+falhar_e_sair() {
+  printf '%s✗%s %s\n' "$vermelho" "$reset" "$1" >&2
+  exit "${2:-1}"
+}
+
+# Guarda antes de qualquer `rm -rf`. `REPRO_DIR` vem do ambiente e o `trap EXIT`
+# garante que o `rm` roda mesmo em falha, então um valor descuidado apaga o que
+# não devia sem nada perguntar. Já se perdeu um banco de desenvolvimento hoje por
+# um comando que não checou para onde apontava; é o mesmo formato de risco.
+case "$destino" in
+  /) falhar_e_sair "REPRO_DIR não pode ser a raiz." 3 ;;
+  "$HOME") falhar_e_sair "REPRO_DIR não pode ser o diretório do usuário." 3 ;;
+  *' '*) falhar_e_sair "REPRO_DIR com espaço não é suportado: '$destino'." 3 ;;
+  /*/*) : ;;
+  *) falhar_e_sair "REPRO_DIR deve ser caminho absoluto com mais de um componente; é '$destino'." 3 ;;
+esac
 
 limpar() {
   docker compose -p "$projeto" -f "$destino/docker-compose.yml" down --volumes --remove-orphans >/dev/null 2>&1
@@ -36,64 +61,36 @@ trap limpar EXIT
 
 echo "== Camada 3.5 — clone limpo a partir de HEAD"
 
-if ! command -v jq >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
-  echo "Exige jq e daemon Docker em execução." >&2
-  exit 3
-fi
+command -v jq >/dev/null 2>&1 || falhar_e_sair "jq não instalado." 3
+docker info >/dev/null 2>&1 || falhar_e_sair "daemon Docker não está em execução." 3
 
 rm -rf "$destino"
-mkdir -p "$destino"
-git archive --format=tar HEAD | tar -x -C "$destino"
+mkdir -p "$destino" || falhar_e_sair "não consegui criar $destino." 3
 
-# Primeira checagem, e a que teria pegado o defeito: o esquema está no arquivo?
-migracoes="$(find "$destino/prisma/migrations" -name 'migration.sql' 2>/dev/null | wc -l | tr -d ' ')"
-if [ "$migracoes" -eq 0 ]; then
-  printf '%s✗%s HEAD não contém nenhuma migração. Um clone sobe sem tabela.\n' "$vermelho" "$reset" >&2
-  exit 1
+# Sem `-e` global — o `$?` do smoke é lido adiante —, então a falha do pipeline
+# tem de ser checada aqui. Sem isto, `git archive` falhando deixava o destino
+# vazio e a mensagem seguinte era "HEAD não contém nenhuma migração": diagnóstico
+# falso, que manda investigar o .gitignore de novo.
+#
+# Código 3, não 1: é "não pude verificar", não "não reproduz". Mesma distinção do
+# verify.sh.
+if ! git archive --format=tar HEAD | tar -x -C "$destino"; then
+  falhar_e_sair "git archive falhou — nada a verificar." 3
 fi
+
+# A checagem mais barata, e a que teria pegado o defeito original.
+migracoes="$(find "$destino/prisma/migrations" -name 'migration.sql' 2>/dev/null | wc -l | tr -d ' ')"
+[ "$migracoes" -gt 0 ] ||
+  falhar_e_sair "HEAD não contém nenhuma migração. Um clone sobe sem tabela."
 printf '%s✓%s HEAD contém %s migração(ões)\n' "$verde" "$reset" "$migracoes"
 
-# Porta, projeto e nomes de container próprios: rodar isto não pode derrubar nem
-# colidir com a stack de quem chamou.
-#
-# O `container_name:` do compose é fixo (`habits-postgres`, `habits-api`) porque
-# `npm run db:test:create` faz `docker exec` por nome. Nome fixo, porém, impede
-# duas stacks simultâneas — `-p` isola rede e volume, não nome de container. A
-# cópia do clone remove as linhas e deixa o Compose gerar nomes prefixados pelo
-# projeto, que é o comportamento que permite o paralelo.
 cd "$destino"
 export JWT_SECRET="${JWT_SECRET:-repro-only-secret-with-at-least-32-chars}"
-#
-# E o Postgres do clone não publica porta nenhuma: 5432 já está tomada pela stack
-# principal, e a API do clone fala com ele pela rede interna do projeto. Publicar
-# porta de banco só serve para ferramenta externa — que aqui não existe.
-#
-# O `ports:` do Postgres sai INTEIRO — chave e item. Apagar só o item deixa
-# `ports:` com lista vazia, e o Compose recusa: "services.postgres.ports must be
-# a array". O `N` lê a linha seguinte e o par é removido junto.
-# Dois passes, e a ordem importa. Num único `sed`, o `N` do segundo padrão puxa a
-# linha do `3333:3333` para o espaço de padrões ANTES de a substituição de porta
-# ser avaliada nela — e a porta ficava inalterada, colidindo com a stack
-# principal. Separar os passes elimina a interação.
-sed -i.bak -e '/^ *container_name:/d' -e "/^ *ports:/{N;/'5432:5432'/d;}" docker-compose.yml
-sed -i.bak2 "s|'3333:3333'|'$porta:3333'|" docker-compose.yml
-rm -f docker-compose.yml.bak docker-compose.yml.bak2
+export STACK_PREFIX="$projeto"
+export POSTGRES_PORT="$porta_db"
+export API_PORT="$porta"
 
-# Sem isto o clone tentaria publicar 3333 e a mensagem seria "port is already
-# allocated", que não diz nada sobre reprodutibilidade.
-grep -q "'$porta:3333'" docker-compose.yml || {
-  printf '%s✗%s a porta do clone não foi remapeada para %s.\n' "$vermelho" "$reset" "$porta" >&2
-  exit 1
-}
-
-# Se a edição quebrou o arquivo, dizer isso agora — e não como "a stack não subiu".
-if ! docker compose -p "$projeto" config --quiet 2>/dev/null; then
-  printf '%s✗%s a cópia do compose ficou inválida:\n' "$vermelho" "$reset" >&2
-  docker compose -p "$projeto" config 2>&1 | tail -5 >&2
-  exit 1
-fi
-
-echo "▶ subindo a stack do clone (projeto $projeto, porta $porta)"
+echo "▶ subindo a stack do clone ($projeto, api em $porta, banco em $porta_db)"
 if ! docker compose -p "$projeto" up --detach --build --wait >/dev/null 2>&1; then
   printf '%s✗%s a stack do clone não subiu. Logs:\n' "$vermelho" "$reset" >&2
   docker compose -p "$projeto" logs --no-color --tail 40 >&2
@@ -101,6 +98,8 @@ if ! docker compose -p "$projeto" up --detach --build --wait >/dev/null 2>&1; th
 fi
 printf '%s✓%s a stack do clone subiu saudável\n' "$verde" "$reset"
 
+# O smoke do CLONE, não o local: se o script tiver ficado fora do git, isto falha
+# — e é uma das coisas que esta camada existe para descobrir.
 echo "▶ smoke contra o clone"
 cd "$repo"
 SMOKE_BASE_URL="http://127.0.0.1:$porta" SMOKE_SUFFIX="repro$$" "$destino/scripts/smoke.sh"

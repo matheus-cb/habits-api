@@ -1,12 +1,25 @@
 # `version:` foi removido: é obsoleto no Compose v2 e só gera aviso.
+#
+# Identidade e portas são parametrizadas com `${VAR:-default}`, que o Compose
+# interpola nativamente. Sem nenhuma variável definida o comportamento é byte a
+# byte o de antes — `habits-postgres`, `habits-api`, 5432, 3333 — então
+# `npm run docker:up` e o `docker exec` por nome do `db:test:create` não mudam.
+#
+# Existe para a Camada 3.5 (`scripts/verify-repro.sh`) poder subir uma segunda
+# stack em paralelo sem colidir. A versão anterior editava este arquivo por `sed`
+# no clone, e isso tinha dois problemas: `sed` sobre YAML quebra em qualquer
+# reformatação válida (um comentário entre a chave `ports:` e o item já derrotava
+# o padrão), e — pior — a camada que existe para testar o repositório mexia no
+# repositório antes de testá-lo. Parametrizar move a variabilidade para o arquivo
+# versionado, e o clone a herda.
 
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: habits-postgres
+    container_name: ${STACK_PREFIX:-habits}-postgres
     restart: unless-stopped
     ports:
-      - '5432:5432'
+      - '${POSTGRES_PORT:-5432}:5432'
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -27,10 +40,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: habits-api
+    container_name: ${STACK_PREFIX:-habits}-api
     restart: unless-stopped
     ports:
-      - '3333:3333'
+      - '${API_PORT:-3333}:3333'
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/habits?schema=public

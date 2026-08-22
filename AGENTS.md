@@ -103,7 +103,8 @@ Três armadilhas que já custaram tempo, detalhadas em `docs/DECISOES.md`:
 
 - **`npm run build` passa com erro de tipo** — `tsup` não typecheca. Rode `tsc --noEmit`.
 - **`src/mcp/tools.ts` importa de `zod/v4`**, não de `zod`, senão o `tsc` estoura o heap.
-- **Migração precisa estar rastreada** — a checagem 8 do gate confere disco vs índice.
+- **Migração precisa estar rastreada E atualizada** — a checagem 8 do gate confere
+  disco vs índice; `check:schema-drift` confere migrações vs `schema.prisma`.
 
 **Camada 2 — exige PostgreSQL.** Apaga as três tabelas antes de cada teste, então
 roda em banco **separado** (`habits_test`, de `.env.test`), e `tests/setup.ts`
@@ -112,6 +113,7 @@ roda em banco **separado** (`habits_test`, de `.env.test`), e `tests/setup.ts`
 ```bash
 npm run docker:up
 npm run db:test:create && npm run db:test:migrate
+npm run check:schema-drift    # migrações versionadas == schema.prisma?
 npm run test:integration
 ```
 
