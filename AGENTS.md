@@ -60,12 +60,9 @@ A fronteira é a mesma em toda a camada: **a IA sugere, o código valida, a deci
 | **INV-18** | A IA nunca executa: reagendamento é proposta **assinada** aplicada só no confirm | `insights/proposal.service.ts` |
 | **INV-19** | Proposta é sugestão, não autorização — o confirm revalida dono, hábito e dias | `insights/proposal.service.ts` |
 
-INV-14 não se resolve com prompt: um modelo que escreva "9 dos 12" quando o
-cálculo diz 8 de 12 passa por qualquer revisão de estilo. O guarda extrai os
-numerais e reprova o que não está no relatório — e o que ele **não** prova está
-declarado em `narration.guard.ts`. O MCP é para assistente **externo**: servidor e
-cliente no mesmo processo fariam a API chamar a si mesma pelo protocolo. Detalhes
-em `docs/IA.md`.
+INV-14 não se resolve com prompt: o guarda extrai os numerais e reprova o que não
+está no relatório, e o que ele **não** prova está declarado em
+`narration.guard.ts`. O MCP é para assistente **externo**. Detalhes em `docs/IA.md`.
 
 ### Contrato com os clientes
 
@@ -156,6 +153,11 @@ Camadas 2 e 3 são executáveis.
 - Invariante nova entra na tabela acima **com** o arquivo onde vive.
 - Toda invariante tem também um teste **adversário**: um que tenta violá-la e
   exige que seja barrada. Teste de caminho feliz não prova fronteira.
+- **O gate local roda o que o CI roda.** A checagem 9 do `check-agent-docs.sh`
+  compara os comandos `npm` do workflow com o `scripts/verify.sh`: o workflow é a
+  fonte, o script é o derivado. Duas listas descrevendo a mesma coisa, sem nada
+  comparando, foi como `npm install` no verify e `npm ci` no CI conviveram — e o
+  CI ficou vermelho sem nenhuma camada local poder ver.
 - **Verificação nova tem caso vizinho.** Depois de escrever um gate, uma trava ou
   um guarda, construa o caso que ele **deveria** pegar e veja-o pegar — não o caso
   que motivou escrevê-lo, que já passa por construção. "Toda invariante tem teste

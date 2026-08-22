@@ -106,6 +106,30 @@ if [ -d prisma/migrations ]; then
     falhar "$no_disco migração(ões) no disco, $no_indice no git. Migração não rastreada é esquema que não reproduz."
 fi
 
+# 9. O gate local roda o que o CI roda.
+#
+#    A divergência que motivou isto: o `verify.sh` validava com `npm install`
+#    (permissivo, reconcilia peers) e o CI roda `npm ci` (valida o lockfile,
+#    recusa conflito). O CI do mobile ficou vermelho desde a primeira execução, e
+#    nenhuma das camadas locais podia ver — o comando estava na lista do AGENTS.md
+#    e ausente do script que a executa.
+#
+#    É a mesma forma da checagem 7: dois documentos descrevendo a mesma coisa, e
+#    nada os comparando. Aqui o workflow é a fonte e o verify.sh o derivado.
+#
+#    Só comandos `npm` — `npx` fica de fora porque o CI o usa com argumentos que o
+#    verify legitimamente troca (`prisma migrate deploy` contra `migrate status`
+#    com outro banco). Não cobre ordem nem o que o CI faz fora de `- run:`; cobre
+#    a classe que passou: comando no CI e ausente no gate local.
+if [ -f .github/workflows/quality-gate.yml ] && [ -f scripts/verify.sh ]; then
+  while read -r cmd; do
+    [ -n "$cmd" ] || continue
+    grep -qF "$cmd" scripts/verify.sh ||
+      falhar "o CI roda '$cmd' e o scripts/verify.sh não. Gate local que não roda o do CI não é gate."
+  done < <(grep -oE '^[[:space:]]*- run: npm .*' .github/workflows/quality-gate.yml |
+    sed 's/.*- run: //' | sort -u)
+fi
+
 if [ "$falhas" -gt 0 ]; then
   echo "" >&2
   echo "$falhas verificação(ões) falharam. Ver AGENTS.md → 'Objetivo'." >&2

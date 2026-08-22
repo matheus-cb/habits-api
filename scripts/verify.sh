@@ -38,6 +38,11 @@ passo npm ci --dry-run
 passo npx tsc --noEmit
 passo npm run lint
 passo npm run test:unit
+# `tsc --noEmit` não substitui o build: o `tsup` resolve import, bundle e saída, e
+# já quebrou por caminho de alias que o typecheck aceita. O CI tem job próprio
+# para isto, e a checagem 9 do gate documental é o que impede as duas listas de
+# divergirem de novo.
+passo npm run build
 
 echo ""
 echo "== Camada 2 — exige PostgreSQL e o banco de teste"
