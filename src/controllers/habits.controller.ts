@@ -31,10 +31,7 @@ export class HabitsController {
     return res.status(201).json(successResponse(result, 'Habit created successfully'));
   };
 
-  update = async (
-    req: Request<{ id: string }, object, UpdateHabitInput>,
-    res: Response
-  ) => {
+  update = async (req: Request<{ id: string }, object, UpdateHabitInput>, res: Response) => {
     const userId = req.user!.id;
     const { id } = req.params;
     const result = await this.habitsService.updateHabit(id, userId, req.body);

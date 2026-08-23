@@ -179,16 +179,25 @@ export class HabitsController {
 }
 ```
 
-### 4. **Factory Pattern**
-Criação de instâncias complexas.
+### 4. **Composição no construtor do controller**
+
+Não existe camada de factories. Cada controller monta as próprias dependências:
 
 ```typescript
-// factories/services.factory.ts
-export function createHabitsService() {
-  const repository = new HabitsRepository();
-  return new HabitsService(repository);
+// controllers/habits.controller.ts
+export class HabitsController {
+  constructor() {
+    this.habitsService = new HabitsService(new HabitsRepository());
+  }
 }
 ```
+
+O preço é conhecido e está registrado: com o serviço criado dentro do
+construtor, **não há como injetar um dublê no controller** — é por isso que os
+testes de unidade batem no *service*, e o controller só é exercitado pela
+Camada 2, via HTTP. A camada de insights fez diferente: `createInsightsService()`
+em `src/insights/index.ts` é uma factory de verdade, e o `InsightsController`
+aceita o serviço por parâmetro justamente para poder ser testado isolado.
 
 ### 5. **Middleware Pattern**
 Processamento em cadeia de requisições.

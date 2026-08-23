@@ -1,18 +1,38 @@
-version: '3.8'
+# `version:` foi removido: é obsoleto no Compose v2 e só gera aviso.
+#
+# Identidade e portas são parametrizadas com `${VAR:-default}`, que o Compose
+# interpola nativamente. Sem nenhuma variável definida o comportamento é byte a
+# byte o de antes — `habits-postgres`, `habits-api`, 5432, 3333 — então
+# `npm run docker:up` e o `docker exec` por nome do `db:test:create` não mudam.
+#
+# Existe para a Camada 3.5 (`scripts/verify-repro.sh`) poder subir uma segunda
+# stack em paralelo sem colidir. A versão anterior editava este arquivo por `sed`
+# no clone, e isso tinha dois problemas: `sed` sobre YAML quebra em qualquer
+# reformatação válida (um comentário entre a chave `ports:` e o item já derrotava
+# o padrão), e — pior — a camada que existe para testar o repositório mexia no
+# repositório antes de testá-lo. Parametrizar move a variabilidade para o arquivo
+# versionado, e o clone a herda.
 
 services:
   postgres:
-    image: postgres:15-alpine
-    container_name: habits-postgres
+    image: postgres:16-alpine
+    container_name: ${STACK_PREFIX:-habits}-postgres
     restart: unless-stopped
     ports:
-      - '5432:5432'
+      - '${POSTGRES_PORT:-5432}:5432'
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: habits
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    # Sem healthcheck, `depends_on` só espera o container EXISTIR, não o Postgres
+    # aceitar conexão — e `docker compose up --wait` não tem o que aguardar.
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d habits']
+      interval: 5s
+      timeout: 3s
+      retries: 10
     networks:
       - habits-network
 
@@ -20,22 +40,29 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: habits-api
+    container_name: ${STACK_PREFIX:-habits}-api
     restart: unless-stopped
     ports:
-      - '3333:3333'
+      - '${API_PORT:-3333}:3333'
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/habits?schema=public
-      JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key}
+      # O default anterior tinha 25 caracteres e o Zod exige 32: mesmo com o
+      # engine do Prisma correto, a API se recusava a subir. Um default que não
+      # passa na própria validação é pior do que nenhum default.
+      JWT_SECRET: ${JWT_SECRET:?defina JWT_SECRET com no minimo 32 caracteres}
       JWT_EXPIRES_IN: 7d
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Deliberadamente repassada vazia quando ausente: a stack tem de subir e
+      # funcionar sem provedor de IA (INV-15), e o smoke verifica isso.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     networks:
       - habits-network
-    volumes:
-      - ./src:/app/src
-      - ./prisma:/app/prisma
+    # Sem montar ./src nem ./prisma: a imagem de produção roda `dist/`, e montar
+    # o TypeScript por cima só sombreava o conteúdo construído sem efeito nenhum.
 
 volumes:
   postgres_data:

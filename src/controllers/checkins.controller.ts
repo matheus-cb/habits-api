@@ -17,10 +17,7 @@ export class CheckinsController {
     this.statsService = new StatsService(checkinsRepository, habitsRepository);
   }
 
-  create = async (
-    req: Request<{ habitId: string }, object, CreateCheckinInput>,
-    res: Response
-  ) => {
+  create = async (req: Request<{ habitId: string }, object, CreateCheckinInput>, res: Response) => {
     const userId = req.user!.id;
     const { habitId } = req.params;
     const { date } = req.body;
@@ -61,16 +58,6 @@ export class CheckinsController {
     const userId = req.user!.id;
     const { habitId, id } = req.params;
     await this.checkinsService.deleteCheckin(id, habitId, userId);
-    return res.status(204).send();
-  };
-
-  deleteCheckin = async (
-    req: Request<{ habitId: string; checkinId: string }>,
-    res: Response
-  ) => {
-    const userId = req.user!.id;
-    const { checkinId } = req.params;
-    await this.checkinsService.deleteCheckin(checkinId, userId);
     return res.status(204).send();
   };
 }

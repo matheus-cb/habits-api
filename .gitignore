@@ -34,7 +34,18 @@ logs/
 # Database
 *.db
 *.db-journal
-prisma/migrations/**/migration.sql
+# Migração NÃO é artefato gerado descartável: é o código-fonte do esquema.
+#
+# Aqui havia `prisma/migrations/**/migration.sql`, e ela mantinha toda migração
+# fora do git. Um clone tinha o `migration_lock.toml` e nenhuma migração, então
+# `prisma migrate deploy` respondia "No migration found" e saía com código 0 —
+# banco sem tabela, container reportando healthy, 500 em toda rota de dado.
+#
+# Versionar só os arquivos existentes com `git add -f` NÃO resolvia: a regra
+# seguiria escondendo a próxima migração, que nasceria ignorada e sairia do
+# commit sem aparecer no `git status`. E o modo de falha seria pior que o
+# original — com migrações antigas rastreadas, o clone aplica o esquema
+# desatualizado e SOBE, falhando só no campo que existe num disco só.
 
 # Temporary files
 tmp/

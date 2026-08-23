@@ -1,28 +1,27 @@
 /**
- * Jest configuration for unit tests.
+ * Camada 1 — testes que não dependem de serviço externo.
  *
- * Unit tests run without a real database. The @/config/database module is
- * replaced with a stub, and required env vars are seeded via setupFiles.
+ * Rodam em qualquer máquina e em qualquer sandbox de agente: o módulo
+ * `@/config/database` é substituído por um stub e as variáveis de ambiente
+ * obrigatórias são semeadas em `setupFiles`, antes de qualquer import.
+ *
+ * O testMatch é um diretório, não uma lista de arquivos: com a lista, um teste
+ * novo em tests/unit/ ficava fora da suíte sem ninguém notar.
  */
-
 module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'node',
-  // Only run the dedicated unit test files
-  testMatch: [
-    '<rootDir>/tests/helpers.test.ts',
-    '<rootDir>/tests/stats.service.test.ts',
-  ],
+  testMatch: ['<rootDir>/tests/unit/**/*.test.ts'],
   transform: {
     '^.+\\.ts$': 'ts-jest',
   },
-  // Set env vars before any module is loaded (runs in the same process)
   setupFiles: ['<rootDir>/tests/unit-env-setup.js'],
-  // No setupFilesAfterEach – unit tests don't touch the database
+  collectCoverageFrom: ['src/**/*.ts', '!src/**/*.d.ts', '!src/server.ts', '!src/types/**'],
+  coverageDirectory: 'coverage',
+  coverageReporters: ['text', 'lcov'],
   moduleNameMapper: {
-    // Replace real Prisma client with a stub
+    // Prisma real nunca é carregado na Camada 1.
     '^@/config/database$': '<rootDir>/tests/__mocks__/database.ts',
-    // Standard path aliases
     '^@/(.*)$': '<rootDir>/src/$1',
     '^@config/(.*)$': '<rootDir>/src/config/$1',
     '^@controllers/(.*)$': '<rootDir>/src/controllers/$1',

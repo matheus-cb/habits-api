@@ -18,9 +18,7 @@ export function errorHandler(
       message: err.message,
     }));
 
-    return res.status(400).json(
-      errorResponse('Validation failed', JSON.stringify(errors))
-    );
+    return res.status(400).json(errorResponse('Validation failed', JSON.stringify(errors)));
   }
 
   // Operational errors (expected)
@@ -31,9 +29,7 @@ export function errorHandler(
   // Unknown errors (unexpected)
   logger.error('Unexpected error:', error);
 
-  const message = env.NODE_ENV === 'production'
-    ? 'Internal server error'
-    : error.message;
+  const message = env.NODE_ENV === 'production' ? 'Internal server error' : error.message;
 
   return res.status(500).json(errorResponse(message));
 }

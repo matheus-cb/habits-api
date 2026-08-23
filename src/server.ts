@@ -1,14 +1,14 @@
 import { app } from './app';
 import { env } from './config/env';
 import { logger } from './utils/logger';
-import { prisma } from './config/database';
+import { connectDatabase, disconnectDatabase } from './config/database';
 
 const PORT = parseInt(env.PORT, 10);
 
 async function startServer() {
   try {
     // Test database connection
-    await prisma.$connect();
+    await connectDatabase();
     logger.info('✅ Database connected successfully');
 
     // Start server
@@ -27,13 +27,13 @@ async function startServer() {
 // Graceful shutdown
 process.on('SIGINT', async () => {
   logger.info('⚠️  SIGINT signal received: closing HTTP server');
-  await prisma.$disconnect();
+  await disconnectDatabase();
   process.exit(0);
 });
 
 process.on('SIGTERM', async () => {
   logger.info('⚠️  SIGTERM signal received: closing HTTP server');
-  await prisma.$disconnect();
+  await disconnectDatabase();
   process.exit(0);
 });
 

@@ -1,3 +1,4 @@
+/* eslint-disable no-console -- este arquivo É a saída de console da aplicação; a regra existe para o resto do src. */
 import { env } from '@/config/env';
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
