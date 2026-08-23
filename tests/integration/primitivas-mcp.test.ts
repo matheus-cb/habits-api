@@ -875,6 +875,67 @@ describe('INV-33 — o socket obsoleto do pool não pode colidir', () => {
     expect(porta).toBeLessThan(MENOR_PORTA_EFEMERA_CONHECIDA);
   });
 
+  it('INV-33: adversário — GET se recupera de socket obsoleto do pool', async () => {
+    // O risco que a porta fixa introduziu, e que o peer apontou: origem estável é
+    // precisamente a condição para o undici REUSAR o socket do pool. Fechar o
+    // servidor e reabrir na mesma porta deixa o pool com um socket morto.
+    //
+    // Este caso FALHAVA com `read ECONNRESET` antes do retry — determinístico
+    // dentro do Jest, e curiosamente não em Node puro, onde o undici se recupera
+    // sozinho. Comportamento que muda com o runtime é o que não se deve deixar
+    // como pressuposto, e foi o que motivou consertar no gateway em vez de evitar
+    // no teste.
+    const { token } = await registrar('porta-reaberta@example.com');
+
+    await gatewayDeRequest.chamar({ token, metodo: 'GET', path: '/api/v1/habits' });
+
+    await new Promise<void>((resolve) => servidor.close(() => resolve()));
+    await new Promise<void>((resolve, reject) => {
+      servidor = app
+        .listen(PORTA_FIXA_DE_TESTE, () => resolve())
+        .on('error', (erro: Error) => reject(erro));
+    });
+
+    const depois = await gatewayDeRequest.chamar({
+      token,
+      metodo: 'GET',
+      path: '/api/v1/habits',
+    });
+
+    expect(depois.status).toBe(200);
+  });
+
+  it('INV-33: adversário — ESCRITA não é repetida em silêncio', async () => {
+    // A metade que importa mais. `ECONNRESET` não diz se a requisição chegou ao
+    // servidor — então repetir um POST poderia criar dois registros, e o problema
+    // não é o efeito de cada rota, é **não saber** se a primeira foi aplicada.
+    //
+    // Escrita falha alto e a decisão de tentar de novo é da pessoa, que é a mesma
+    // fronteira do resto do desenho. Este caso é o que impede alguém "melhorar" o
+    // retry estendendo-o a todo método.
+    const { token } = await registrar('escrita-sem-retry@example.com');
+    const habitId = await criarHabito(token, 'Nao deve duplicar');
+
+    await gatewayDeRequest.chamar({ token, metodo: 'GET', path: '/api/v1/habits' });
+    await new Promise<void>((resolve) => servidor.close(() => resolve()));
+    await new Promise<void>((resolve, reject) => {
+      servidor = app
+        .listen(PORTA_FIXA_DE_TESTE, () => resolve())
+        .on('error', (erro: Error) => reject(erro));
+    });
+
+    // A primeira escrita depois da reabertura pega o socket obsoleto. Ela pode
+    // falhar ou passar, dependendo de o undici já ter descartado o socket — o que
+    // este caso fixa é que ela NUNCA é repetida automaticamente, então o
+    // check-in não pode nascer duplicado.
+    await gatewayDeRequest
+      .chamar({ token, metodo: 'POST', path: `/api/v1/habits/${habitId}/checkin` })
+      .catch(() => undefined);
+
+    const checkins = await prismaCru.checkin.findMany({ where: { habitId } });
+    expect(checkins.length).toBeLessThanOrEqual(1);
+  });
+
   it('INV-33: adversário — o socket do pool REALMENTE sobrevive ao close, e é por isso que a porta importa', async () => {
     // Mede a premissa em vez de afirmá-la em comentário. Se um dia o Node passar
     // a fechar os sockets do pool junto com o servidor, este caso reprova e a

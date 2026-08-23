@@ -357,7 +357,67 @@ export class HttpRequestGateway implements GatewayDeRequest {
       throw new BadRequestError('Corpo acima de 16 KB.');
     }
 
-    const resposta = await fetch(`${this.baseUrl ?? enderecoLocal()}${path}`, {
+    const resposta = await this.enviar(metodoNormalizado, path, corpoSerializado, token);
+
+    const texto = await resposta.text();
+    return {
+      status: resposta.status,
+      corpo: texto.length === 0 ? null : seguroComoJson(texto),
+    };
+  }
+
+  /**
+   * Envia, e tenta UMA vez de novo quando a conexão falha — só em `GET`.
+   *
+   * ## Por que existe
+   *
+   * `fetch` no Node é undici, e ele mantém pool keep-alive por origem. Um socket
+   * do pool pode estar morto sem o cliente saber: o servidor reiniciou, um
+   * balanceador reciclou a conexão, o processo do outro lado caiu e voltou. A
+   * primeira chamada a reusar esse socket recebe `read ECONNRESET` — e o erro
+   * aparece como falha da aplicação quando é falha de uma conexão obsoleta.
+   *
+   * Reproduzido de forma determinística: fechar o servidor e reabrir na mesma
+   * porta faz a próxima chamada estourar. E depende do ambiente — em Node puro o
+   * undici se recupera sozinho, dentro do Jest não. Um comportamento que muda com
+   * o runtime é exatamente o que não se deve deixar como pressuposto.
+   *
+   * ## Por que SÓ em GET
+   *
+   * `ECONNRESET` não diz se a requisição chegou ao servidor. Repetir um `POST`
+   * poderia criar dois check-ins, e repetir um `DELETE` já aplicado é inócuo mas
+   * repetir um `POST /restore`... também. O problema não é o efeito de cada rota:
+   * é que **não se sabe** se a primeira tentativa foi aplicada.
+   *
+   * `GET` é idempotente por contrato, então repetir é seguro por definição.
+   * Escrita falha alto, e quem decide se tenta de novo é a pessoa — que é a mesma
+   * fronteira do resto deste desenho.
+   */
+  private async enviar(
+    metodo: string,
+    path: string,
+    corpoSerializado: string | undefined,
+    token: string
+  ): Promise<Response> {
+    try {
+      return await this.dispararUmaVez(metodo, path, corpoSerializado, token);
+    } catch (erro) {
+      if (metodo !== 'GET' || !ehFalhaDeConexao(erro)) {
+        throw erro;
+      }
+      // A segunda tentativa não reusa o socket morto: o undici o descarta ao
+      // detectar a falha, então esta abre conexão nova.
+      return this.dispararUmaVez(metodo, path, corpoSerializado, token);
+    }
+  }
+
+  private dispararUmaVez(
+    metodoNormalizado: string,
+    path: string,
+    corpoSerializado: string | undefined,
+    token: string
+  ): Promise<Response> {
+    return fetch(`${this.baseUrl ?? enderecoLocal()}${path}`, {
       method: metodoNormalizado,
       headers: {
         // O token vem do JWT de quem abriu a sessão MCP. A tool NÃO aceita
@@ -376,13 +436,20 @@ export class HttpRequestGateway implements GatewayDeRequest {
       ...(corpoSerializado ? { body: corpoSerializado } : {}),
       signal: AbortSignal.timeout(15_000),
     });
-
-    const texto = await resposta.text();
-    return {
-      status: resposta.status,
-      corpo: texto.length === 0 ? null : seguroComoJson(texto),
-    };
   }
+}
+
+/**
+ * Falha de CONEXÃO, e não resposta de erro.
+ *
+ * O `fetch` embrulha erros de rede num `TypeError: fetch failed` com o motivo
+ * real em `cause`. Sem olhar a `cause`, um `AbortError` de timeout e um
+ * `ECONNRESET` de socket obsoleto seriam indistinguíveis — e repetir depois de um
+ * timeout de 15s dobraria a espera em vez de consertar nada.
+ */
+function ehFalhaDeConexao(erro: unknown): boolean {
+  const causa = (erro as { cause?: { code?: string } } | undefined)?.cause;
+  return causa?.code === 'ECONNRESET' || causa?.code === 'ECONNREFUSED' || causa?.code === 'EPIPE';
 }
 
 /** Compara por segmento; `:param` casa com um segmento não vazio. */
