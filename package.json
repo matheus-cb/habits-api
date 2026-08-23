@@ -32,7 +32,8 @@
     "stack:logs": "docker compose logs --no-color --tail 200",
     "verify:repro": "./scripts/verify-repro.sh",
     "check:schema-drift": "./scripts/check-schema-drift.sh",
-    "purge": "tsx scripts/purge.ts"
+    "purge": "tsx scripts/purge.ts",
+    "mcp:config": "tsx scripts/mcp-config.ts"
   },
   "keywords": [
     "api",
