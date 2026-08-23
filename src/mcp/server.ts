@@ -3,8 +3,12 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { authenticate } from '@/middlewares/auth.middleware';
 import { logger } from '@/utils/logger';
+import { swaggerDocument } from '@/docs/swagger';
 import { createHabitsGateway, ReadOnlyHabitsGateway } from './gateway';
 import { registerReadOnlyTools } from './tools';
+import { registrarPrimitivas, registrarRecursos } from './primitivas';
+import { criarGatewayDeQuery, GatewayDeQuery } from './query';
+import { GatewayDeRequest, HttpRequestGateway } from './request';
 
 /**
  * Endpoint MCP, transporte Streamable HTTP, **sem sessão**.
@@ -19,7 +23,11 @@ import { registerReadOnlyTools } from './tools';
  * própria de identidade (INV-10).
  */
 export function createMcpRouter(
-  gatewayFactory: () => ReadOnlyHabitsGateway = createHabitsGateway
+  gatewayFactory: () => ReadOnlyHabitsGateway = createHabitsGateway,
+  {
+    gatewayDeQuery = criarGatewayDeQuery(),
+    gatewayDeRequest = new HttpRequestGateway(),
+  }: { gatewayDeQuery?: GatewayDeQuery | null; gatewayDeRequest?: GatewayDeRequest } = {}
 ): Router {
   const router = Router();
 
@@ -27,16 +35,41 @@ export function createMcpRouter(
 
   router.post('/', async (req: Request, res: Response) => {
     const userId = req.user!.id;
+    // O token do cabeçalho, não um reemitido. A primitiva `request` chama a API
+    // com a credencial de quem abriu esta sessão MCP: assinar um token novo aqui
+    // daria ao assistente uma identidade que ninguém autenticou.
+    const token = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
 
     const server = new McpServer(
       { name: 'habits-mcp', version: '1.0.0' },
       {
-        instructions:
-          'Servidor somente leitura sobre os hábitos da pessoa autenticada. Nenhuma tool altera estado: check-in, criação e reagendamento acontecem apenas na API HTTP, com confirmação da pessoa.',
+        instructions: [
+          'Assistente sobre os hábitos da pessoa autenticada. Duas formas de trabalhar:',
+          '',
+          '1. As tools nomeadas (list_habits, get_habit_stats, get_adherence_report…) para o',
+          '   que é rotina. Todas somente leitura.',
+          '2. As primitivas `query` e `request` para o que não tem tool. `query` é SQL somente',
+          '   leitura sobre os seus dados; `request` chama a API — inclusive escrevendo.',
+          '',
+          'Antes de compor uma consulta ou uma chamada, leia os recursos `habits://schema`,',
+          '`habits://rotas` e `habits://contratos`: os três são gerados a partir do sistema real,',
+          'e adivinhar nome de coluna, de rota ou de campo custa uma ida e volta.',
+          '',
+          'A regra que não se negocia: **você sugere, a pessoa decide.** Nenhuma chamada que',
+          'altere estado sem ela ter concordado com aquela chamada. Todo número que você',
+          'afirmar tem de vir de uma leitura — não estime, não arredonde de cabeça, não',
+          'complete uma série que você não consultou.',
+          '',
+          'Escrita é reversível por construção: apagar hábito ou check-in é LÓGICO e volta por',
+          '`/restore`. Isso é uma rede de segurança, não licença para apagar e ver o que',
+          'acontece — o apagamento definitivo é um script que só a pessoa roda.',
+        ].join('\n'),
       }
     );
 
     registerReadOnlyTools(server, gatewayFactory(), userId);
+    registrarPrimitivas(server, { gatewayDeQuery, gatewayDeRequest, userId, token });
+    registrarRecursos(server, { gatewayDeQuery, userId, openapi: swaggerDocument });
 
     const transport = new StreamableHTTPServerTransport({
       // Sem sessão: ver o comentário do arquivo.

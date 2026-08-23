@@ -1,4 +1,12 @@
-import { z } from 'zod';
+// `zod/v4`, e não `zod`. Os schemas desta pasta são a definição de contrato do
+// projeto, e é deles que o recurso `habits://contratos` do MCP é DERIVADO, via
+// `z.toJSONSchema()` — que só existe na v4. A alternativa era manter o contrato
+// escrito à mão num objeto OpenAPI paralelo, que foi exatamente o que apodreceu:
+// o `swaggerDocument` tinha `paths: {}` e ninguém tinha percebido.
+//
+// `zod@3.25` publica as duas implementações no mesmo pacote. `src/config/env.ts`
+// segue na v3 de propósito: ele valida antes de qualquer contrato existir.
+import { z } from 'zod/v4';
 
 export const registerSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters').max(100),

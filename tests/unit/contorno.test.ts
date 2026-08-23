@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { z } from 'zod';
+import { z } from 'zod/v4';
 import jwt from 'jsonwebtoken';
 import { Request, Response } from 'express';
 import { createHabitSchema, updateHabitSchema } from '@/schemas/habits.schema';
@@ -42,7 +42,20 @@ describe('INV-02 — repositório é a única porta do banco', () => {
     // Esta é a invariante que se viola sem quebrar nada: um `import { prisma }`
     // dentro de um service funciona perfeitamente e destrói a camada. Só um
     // teste estático a pega.
-    const permitidos = [path.join(SRC, 'repositories'), path.join(SRC, 'config')];
+    const permitidos = [
+      path.join(SRC, 'repositories'),
+      path.join(SRC, 'config'),
+      // A exceção declarada, e a única. `mcp/query.ts` constrói um PrismaClient
+      // PRÓPRIO na role somente-leitura, e é justamente por não passar pelos
+      // repositórios que ele é seguro: os repositórios usam o client do dono das
+      // tabelas, que tem escrita e contorna RLS. Reescrever esta primitiva como
+      // repositório derrubaria as duas garantias dela de uma vez.
+      //
+      // Exceção sem propriedade conferida é whitelist, e whitelist apodrece. O
+      // caso seguinte é o que impede esta virar uma: ele exige que o arquivo
+      // continue lendo só de `DATABASE_URL_READONLY`.
+      path.join(SRC, 'mcp', 'query.ts'),
+    ];
 
     const infratores = arquivosTs(SRC)
       .filter((arquivo) => !permitidos.some((dir) => arquivo.startsWith(dir)))
@@ -50,6 +63,21 @@ describe('INV-02 — repositório é a única porta do banco', () => {
       .map((arquivo) => path.relative(SRC, arquivo));
 
     expect(infratores).toEqual([]);
+  });
+
+  it('INV-02: a exceção do mcp/query.ts nunca alcança o client da aplicação', () => {
+    // O que torna a exceção aceitável: privilégio menor. Se este arquivo passar a
+    // ler `env.DATABASE_URL`, ou a importar o client da aplicação, ele ganha
+    // escrita e passa a contornar RLS — e as duas garantias da primitiva `query`
+    // caem juntas, sem nenhum teste de comportamento notar, porque toda consulta
+    // continuaria funcionando. Só um caso estático pega isso.
+    const fonte = fs.readFileSync(path.join(SRC, 'mcp', 'query.ts'), 'utf8');
+
+    expect(fonte).toMatch(/DATABASE_URL_READONLY/);
+    expect(fonte).not.toMatch(/from\s+'@\/config\/database'/);
+    // `DATABASE_URL` sem o sufixo: a URL do dono das tabelas.
+    expect(fonte).not.toMatch(/DATABASE_URL(?!_READONLY)/);
+    expect(fonte).not.toMatch(/from\s+'@\/repositories\//);
   });
 
   it('INV-02: adversário — o próprio detector pega os imports que a invariante proíbe', () => {

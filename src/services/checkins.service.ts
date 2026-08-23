@@ -9,7 +9,12 @@ export class CheckinsService {
     private habitsRepository: HabitsRepository
   ) {}
 
-  async createCheckin(habitId: string, userId: string, date?: Date) {
+  async createCheckin(
+    habitId: string,
+    userId: string,
+    date?: Date,
+    createdVia: 'user' | 'assistant' = 'user'
+  ) {
     const habit = await this.habitsRepository.findById(habitId);
 
     if (!habit) {
@@ -45,6 +50,7 @@ export class CheckinsService {
       return await this.checkinsRepository.create({
         habitId,
         date: checkinDate,
+        createdVia,
       });
     } catch (error) {
       // Dois pedidos simultâneos passam os dois pela consulta acima e um perde
@@ -92,7 +98,46 @@ export class CheckinsService {
       throw new NotFoundError('Check-in');
     }
 
-    await this.checkinsRepository.delete(checkinId);
+    await this.checkinsRepository.softDelete(checkinId);
+  }
+
+  /**
+   * Restaura check-in desfeito.
+   *
+   * Pode colidir com o índice único parcial: se a pessoa desfez e marcou de novo
+   * no mesmo dia, restaurar o antigo criaria dois ativos naquele dia. O banco
+   * recusa, e a tradução é 409 — o mesmo status da duplicata, porque é a mesma
+   * regra (INV-01).
+   */
+  async restoreCheckin(checkinId: string, habitId: string, userId: string) {
+    const habit = await this.habitsRepository.findById(habitId);
+
+    if (!habit) {
+      throw new NotFoundError('Habit');
+    }
+    if (habit.userId !== userId) {
+      throw new ForbiddenError('You do not have access to this habit');
+    }
+
+    const checkin = await this.checkinsRepository.findByIdIncludingDeleted(checkinId);
+
+    if (!checkin || checkin.habitId !== habitId) {
+      throw new NotFoundError('Check-in');
+    }
+    if (!checkin.deletedAt) {
+      throw new ConflictError('Este check-in não está desfeito');
+    }
+
+    try {
+      return await this.checkinsRepository.restore(checkinId);
+    } catch (error) {
+      if (isUniqueConstraintViolation(error)) {
+        throw new ConflictError(
+          'Já existe um check-in ativo nesse dia. Desfaça o atual antes de restaurar este.'
+        );
+      }
+      throw error;
+    }
   }
 }
 

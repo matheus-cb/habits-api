@@ -125,6 +125,40 @@ router.put(
  *       204:
  *         description: Habit deleted successfully
  */
+/**
+ * @swagger
+ * /habits/{id}:
+ *   delete:
+ *     summary: Apaga o hábito LOGICAMENTE, junto dos check-ins ativos dele
+ *     description: >
+ *       Reversível por POST /habits/{id}/restore. O delete físico não existe por
+ *       HTTP — é o script `npm run purge`, deliberadamente fora desta superfície.
+ *     tags: [Habits]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       204:
+ *         description: Apagado logicamente
+ */
 router.delete('/:id', validateParams(habitIdSchema), habitsController.delete);
+
+/**
+ * @swagger
+ * /habits/{id}/restore:
+ *   post:
+ *     summary: Restaura hábito apagado logicamente
+ *     description: >
+ *       Devolve o hábito e apenas os check-ins do lote apagado com ele — os que
+ *       a pessoa havia desfeito antes permanecem desfeitos.
+ *     tags: [Habits]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Restaurado
+ *       409:
+ *         description: O hábito não está apagado
+ */
+router.post('/:id/restore', validateParams(habitIdSchema), habitsController.restore);
 
 export default router;

@@ -308,7 +308,7 @@ describe('INV-17 — o endpoint MCP é somente leitura e autenticado', () => {
     expect(resposta.status).toBe(401);
   });
 
-  it('INV-17: as tools anunciadas pelo endpoint são só as de leitura', async () => {
+  it('INV-17/INV-25: o endpoint anuncia as tools de leitura mais as duas primitivas', async () => {
     const token = await registrar('mcp@example.com');
 
     await request(app)
@@ -330,13 +330,29 @@ describe('INV-17 — o endpoint MCP é somente leitura e autenticado', () => {
       .send(chamada('tools/list'));
 
     expect(resposta.status).toBe(200);
-    const nomes = (resposta.body.result?.tools ?? []).map((tool: { name: string }) => tool.name);
-    expect(nomes.sort()).toEqual([
+    const tools = (resposta.body.result?.tools ?? []) as {
+      name: string;
+      annotations?: { readOnlyHint?: boolean };
+    }[];
+
+    // A lista literal fica: é o que um assistente externo REALMENTE vê, e uma
+    // tool acrescentada sem alguém decidir tem de quebrar aqui. `query` está aqui
+    // porque a suíte de integração roda com `DATABASE_URL_READONLY` configurada —
+    // é a mesma conexão que os testes das primitivas usam.
+    expect(tools.map((t) => t.name).sort()).toEqual([
       'get_adherence_report',
       'get_habit',
       'get_habit_stats',
       'list_checkins',
       'list_habits',
+      'query',
+      'request',
+    ]);
+
+    // E a propriedade que a mudança de desenho torna crítica: exatamente UMA
+    // escreve. Enquanto tudo era leitura, isto era grátis; agora é a fronteira.
+    expect(tools.filter((t) => t.annotations?.readOnlyHint !== true).map((t) => t.name)).toEqual([
+      'request',
     ]);
   });
 

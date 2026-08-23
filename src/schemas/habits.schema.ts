@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v4';
 
 /**
  * Dias da semana em que o hábito é cobrado: 0 = domingo … 6 = sábado, a mesma

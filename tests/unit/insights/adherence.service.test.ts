@@ -193,16 +193,30 @@ describe('INV-13 — todo número do relatório nasce de contagem', () => {
 });
 
 describe('INV-01 — um check-in por hábito por dia é garantia do banco', () => {
-  it('INV-01: o schema declara a constraint única em (habitId, date)', () => {
-    // A garantia é do banco, não da consulta prévia no service. Se a linha
-    // `@@unique([habitId, date])` sair do schema, a duplicata deixa de ser
-    // impossível e passa a depender de tempo — e este teste é o que avisa.
-    const schema = fs.readFileSync(
-      path.join(__dirname, '..', '..', '..', 'prisma', 'schema.prisma'),
-      'utf8'
-    );
+  it('INV-01: a unicidade é um índice PARCIAL, e o total foi removido', () => {
+    // A garantia continua sendo do banco, e trocou de forma: era
+    // `@@unique([habitId, date])` no schema, cobrindo a tabela inteira, e o soft
+    // delete a estreitou para `WHERE "deletedAt" IS NULL`. O índice total
+    // impediria remarcar um check-in no mesmo dia depois de desfazê-lo — colidiria
+    // com uma linha que a pessoa não vê mais.
+    //
+    // O Prisma não sabe declarar índice parcial, então a garantia mora na
+    // migração, não no schema — e é por isso que este caso lê SQL. A prova de
+    // comportamento é a Camada 2, em `tests/integration/soft-delete.test.ts`;
+    // aqui é a prova de que ninguém desfez a troca pela metade, deixando os dois
+    // índices de pé ou nenhum.
+    const migracoes = path.join(__dirname, '..', '..', '..', 'prisma', 'migrations');
+    const sql = fs
+      .readdirSync(migracoes)
+      .filter((d) => fs.statSync(path.join(migracoes, d)).isDirectory())
+      .sort()
+      .map((d) => fs.readFileSync(path.join(migracoes, d, 'migration.sql'), 'utf8'))
+      .join('\n');
 
-    expect(schema).toMatch(/@@unique\(\[habitId,\s*date\]\)/);
+    expect(sql).toMatch(
+      /CREATE UNIQUE INDEX "checkins_habitId_date_ativo_key"[\s\S]*?WHERE "deletedAt" IS NULL/
+    );
+    expect(sql).toMatch(/DROP INDEX[^;]*"checkins_habitId_date_key"/);
   });
 
   it('INV-04: a coluna de data é DATE, não timestamp', () => {

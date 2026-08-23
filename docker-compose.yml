@@ -47,6 +47,12 @@ services:
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/habits?schema=public
+      # A conexão da primitiva `query` do MCP. A role e o RLS nascem de uma
+      # migração, então ela existe no banco desde o `migrate deploy` do entrypoint
+      # — mas sem esta variável a primitiva simplesmente NÃO É REGISTRADA, e o
+      # sintoma é `Tool query not found`, não erro de conexão. Foi o smoke da
+      # Camada 3 que pegou: nenhuma outra camada olha a imagem.
+      DATABASE_URL_READONLY: postgresql://habits_readonly:habits_readonly_dev@postgres:5432/habits?schema=public
       # O default anterior tinha 25 caracteres e o Zod exige 32: mesmo com o
       # engine do Prisma correto, a API se recusava a subir. Um default que não
       # passa na própria validação é pior do que nenhum default.

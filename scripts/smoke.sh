@@ -333,9 +333,9 @@ resposta=$(requisitar "${auth_a[@]}" "$API/habits/$habito")
 conferir_igual "INV-18: nenhuma tentativa recusada alterou o agendamento" \
   '[1,3,5]' "$(jq -c '.data.scheduledDays' <<<"$(corpo_de "$resposta")")" "$(corpo_de "$resposta")"
 
-# ── 10. MCP somente leitura, pelo transporte de verdade ─────────────────────────
+# ── 10. MCP: tools de leitura e as duas primitivas, pelo transporte de verdade ──
 echo ""
-echo "10. INV-17 — servidor MCP somente leitura"
+echo "10. INV-17/INV-25 — superfície MCP"
 
 mcp=(-H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream')
 
@@ -353,12 +353,69 @@ corpo=$(corpo_de "$resposta")
 conferir_status "tools/list responde 200 com token" 200 "$(status_de "$resposta")" "$corpo"
 
 nomes=$(jq -r '[.result.tools[].name] | sort | join(",")' <<<"$corpo" 2>/dev/null)
-conferir_igual "INV-17: as tools anunciadas são exatamente as cinco de leitura" \
-  'get_adherence_report,get_habit,get_habit_stats,list_checkins,list_habits' \
+conferir_igual "INV-25: a superfície anunciada é a declarada" \
+  'get_adherence_report,get_habit,get_habit_stats,list_checkins,list_habits,query,request' \
   "$nomes" "$corpo"
 
-somente_leitura=$(jq -r '[.result.tools[] | select(.annotations.readOnlyHint != true)] | length' <<<"$corpo" 2>/dev/null)
-conferir_igual "INV-17: toda tool anuncia readOnlyHint" 0 "$somente_leitura" "$corpo"
+# A propriedade que a mudança de desenho torna crítica: exatamente UMA escreve.
+# Enquanto tudo era leitura isto era grátis; agora é a fronteira do desenho, e é a
+# anotação por onde o cliente decide se pede confirmação.
+escrevem=$(jq -r '[.result.tools[] | select(.annotations.readOnlyHint != true) | .name] | join(",")' <<<"$corpo" 2>/dev/null)
+conferir_igual "INV-25: só \`request\` não se declara somente leitura" 'request' "$escrevem" "$corpo"
+
+# ── 10b. As primitivas na imagem, não só na suíte ───────────────────────────────
+# A Camada 2 prova o comportamento com a aplicação carregada em processo. Esta
+# prova que o CONTAINER tem a role somente-leitura configurada e o RLS aplicado —
+# `DATABASE_URL_READONLY` ausente na imagem faz `query` simplesmente não existir,
+# e nenhuma outra camada veria isso.
+resposta=$(requisitar "${auth_a[@]}" "${mcp[@]}" -X POST \
+  -d '{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT count(*)::int AS n FROM users"}}}' \
+  "$BASE/mcp")
+corpo=$(corpo_de "$resposta")
+linhas=$(jq -r '.result.content[0].text | fromjson | .linhas[0].n' <<<"$corpo" 2>/dev/null)
+conferir_igual "INV-27: SELECT em users pela primitiva devolve UMA linha, a de quem chamou" \
+  1 "$linhas" "$corpo"
+
+resposta=$(requisitar "${auth_a[@]}" "${mcp[@]}" -X POST \
+  -d '{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"query","arguments":{"sql":"UPDATE habits SET title = '"'"'invadido'"'"'"}}}' \
+  "$BASE/mcp")
+corpo=$(corpo_de "$resposta")
+if grep -qi 'permission denied' <<<"$corpo"; then
+  ok "INV-27: UPDATE pela primitiva falha por PERMISSÃO do Postgres na imagem"
+else
+  falhar "INV-27: UPDATE pela primitiva falha por PERMISSÃO do Postgres na imagem" "$corpo"
+fi
+
+resposta=$(requisitar "${auth_a[@]}" "${mcp[@]}" -X POST \
+  -d '{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"request","arguments":{"metodo":"PUT","path":"/api/v1/auth/profile","corpo":{"email":"x@y.z"}}}}' \
+  "$BASE/mcp")
+corpo=$(corpo_de "$resposta")
+# `isError` sozinho NÃO serve aqui: contra a imagem antiga, sem as primitivas, a
+# resposta era `Tool request not found` — também `isError`, e a asserção passava
+# provando o oposto do que dizia. A mensagem tem de vir da allowlist.
+if grep -q 'não está no alcance do assistente' <<<"$corpo"; then
+  ok "INV-26: rota fora da allowlist é recusada pela primitiva na imagem"
+else
+  falhar "INV-26: rota fora da allowlist é recusada pela primitiva na imagem" "$corpo"
+fi
+
+# `request` alcançando a própria API pelo loopback só funciona se o endereço
+# OBSERVADO estiver registrado. Um `registrarEnderecoLocal` que não fosse chamado
+# em `server.ts` daria 401 aqui, e em nenhum outro lugar.
+resposta=$(requisitar "${auth_a[@]}" "${mcp[@]}" -X POST \
+  -d '{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"request","arguments":{"metodo":"GET","path":"/api/v1/habits"}}}' \
+  "$BASE/mcp")
+corpo=$(corpo_de "$resposta")
+status_interno=$(jq -r '.result.content[0].text | fromjson | .status' <<<"$corpo" 2>/dev/null)
+conferir_igual "INV-25: a primitiva alcança a própria API pelo endereço observado" \
+  200 "$status_interno" "$corpo"
+
+resposta=$(requisitar "${auth_a[@]}" "${mcp[@]}" -X POST \
+  -d '{"jsonrpc":"2.0","id":14,"method":"resources/list","params":{}}' "$BASE/mcp")
+corpo=$(corpo_de "$resposta")
+uris=$(jq -r '[.result.resources[].uri] | sort | join(",")' <<<"$corpo" 2>/dev/null)
+conferir_igual "INV-25: os quatro recursos de descoberta são anunciados" \
+  'habits://contratos,habits://openapi,habits://rotas,habits://schema' "$uris" "$corpo"
 
 # Chamar uma tool de escrita que não existe: erro, nunca sucesso silencioso.
 resposta=$(requisitar "${auth_a[@]}" "${mcp[@]}" -X POST \

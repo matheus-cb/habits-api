@@ -10,19 +10,20 @@ export class CheckinsRepository {
   }
 
   async findById(id: string): Promise<Checkin | null> {
-    return prisma.checkin.findUnique({
+    // `findFirst`, não `findUnique`: só ele aceita o filtro de soft delete que a
+    // extensão injeta. Ver `src/config/soft-delete.ts`.
+    return prisma.checkin.findFirst({
       where: { id },
     });
   }
 
   async findByHabitIdAndDate(habitId: string, date: Date): Promise<Checkin | null> {
-    return prisma.checkin.findUnique({
-      where: {
-        habitId_date: {
-          habitId,
-          date,
-        },
-      },
+    // Era `findUnique({ where: { habitId_date: … } })`. Esse input composto
+    // deixou de existir junto com o `@@unique` do modelo — a unicidade agora vive
+    // num índice PARCIAL, que o Prisma não declara. `findFirst` com os dois
+    // campos consulta o mesmo índice e recebe o filtro de soft delete.
+    return prisma.checkin.findFirst({
+      where: { habitId, date },
     });
   }
 
@@ -43,16 +44,31 @@ export class CheckinsRepository {
     });
   }
 
-  async create(data: { habitId: string; date: Date }): Promise<Checkin> {
+  async create(data: {
+    habitId: string;
+    date: Date;
+    createdVia?: 'user' | 'assistant';
+  }): Promise<Checkin> {
     return prisma.checkin.create({
       data,
     });
   }
 
-  async delete(id: string): Promise<void> {
-    await prisma.checkin.delete({
-      where: { id },
-    });
+  /** Soft delete: desfazer check-in passa a ser reversível. */
+  async softDelete(id: string): Promise<void> {
+    await prisma.checkin.update({ where: { id }, data: { deletedAt: new Date() } });
+  }
+
+  async restore(id: string): Promise<Checkin> {
+    return prisma.checkin.update({ where: { id }, data: { deletedAt: null } });
+  }
+
+  /** Porta explícita para o apagado — ver o método equivalente em habits. */
+  async findByIdIncludingDeleted(id: string): Promise<Checkin | null> {
+    const linhas = await prisma.$queryRaw<Checkin[]>`
+      SELECT * FROM "checkins" WHERE "id" = ${id} LIMIT 1
+    `;
+    return linhas[0] ?? null;
   }
 
   async countByHabitId(habitId: string): Promise<number> {

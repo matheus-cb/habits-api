@@ -23,6 +23,14 @@ export default [
         module: 'readonly',
         require: 'readonly',
         Buffer: 'readonly',
+        // Globais do Node que o projeto usa. Faltavam, e a ausência acusava
+        // `fetch is not defined` em código correto — o defeito era o config, não
+        // o código: este projeto É Node 22.
+        fetch: 'readonly',
+        AbortSignal: 'readonly',
+        setTimeout: 'readonly',
+        clearTimeout: 'readonly',
+        URL: 'readonly',
       },
     },
     plugins: {

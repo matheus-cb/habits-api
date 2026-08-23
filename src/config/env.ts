@@ -25,6 +25,16 @@ const envSchema = z.object({
   AI_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(256).max(8192).default(1024),
   /** Timeout do provedor, em ms. Estourar cai no redator determinístico. */
   AI_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120_000).default(20_000),
+
+  /**
+   * Conexão da role `habits_readonly`, usada só pela primitiva `query` do MCP.
+   *
+   * Opcional pelo mesmo motivo que a chave de IA é: ausente, a primitiva não é
+   * registrada e todo o resto funciona igual. E é uma URL SEPARADA de propósito
+   * — reusar a da aplicação daria à primitiva os privilégios de escrita do dono
+   * das tabelas, que também contorna RLS. As duas garantias cairiam juntas.
+   */
+  DATABASE_URL_READONLY: z.string().url().optional(),
 });
 
 const _env = envSchema.safeParse(process.env);

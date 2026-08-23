@@ -1,7 +1,24 @@
 import swaggerUi from 'swagger-ui-express';
 import { Express } from 'express';
 
-const swaggerDocument = {
+/**
+ * Metadados da API — servidos em `/api-docs`, `/api-docs.json` e no recurso MCP
+ * `habits://openapi`. Uma cópia, três consumidores.
+ *
+ * ## `paths` está vazio, e isto é dívida declarada
+ *
+ * Cada rota daqui precisaria de uma entrada escrita à mão descrevendo corpo,
+ * resposta e status — a mesma informação que os schemas Zod de `src/schemas/` já
+ * definem e **impõem**. Duas descrições do mesmo contrato, uma delas sem nada
+ * comparando: é a forma que já apodreceu neste arquivo sem ninguém notar, e
+ * preencher à mão só recomeçaria o apodrecimento.
+ *
+ * O contrato que o assistente MCP consulta é `habits://contratos`, DERIVADO dos
+ * schemas por `z.toJSONSchema()`. Preencher `paths` a partir da mesma derivação é
+ * o conserto de verdade, e está registrado como dívida em `AGENTS.md` em vez de
+ * ser escrito à mão aqui.
+ */
+export const swaggerDocument = {
   openapi: '3.0.0',
   info: {
     title: 'Habits API',
@@ -158,5 +175,13 @@ const swaggerDocument = {
 };
 
 export function setupSwagger(app: Express): void {
+  // JSON antes da UI: quem consome contrato por programa não deve ter de raspar
+  // HTML. Note que `paths` deste documento está VAZIO — ver o comentário de
+  // `swaggerDocument`. O contrato de corpo real é `habits://contratos`, derivado
+  // dos schemas Zod.
+  app.get('/api-docs.json', (_req, res) => {
+    res.json(swaggerDocument);
+  });
+
   app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 }

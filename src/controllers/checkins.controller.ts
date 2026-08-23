@@ -5,6 +5,7 @@ import { CheckinsRepository } from '@/repositories/checkins.repository';
 import { HabitsRepository } from '@/repositories/habits.repository';
 import { successResponse } from '@/utils/response';
 import { CreateCheckinInput, CheckinDateRangeInput } from '@/schemas/checkins.schema';
+import { origemDaRequisicao } from '@/mcp/origem';
 
 export class CheckinsController {
   private checkinsService: CheckinsService;
@@ -25,7 +26,8 @@ export class CheckinsController {
     const result = await this.checkinsService.createCheckin(
       habitId,
       userId,
-      date ? new Date(date) : undefined
+      date ? new Date(date) : undefined,
+      origemDaRequisicao(req)
     );
 
     return res.status(201).json(successResponse(result, 'Check-in created successfully'));
@@ -52,6 +54,13 @@ export class CheckinsController {
     const { habitId } = req.params;
     const result = await this.statsService.getHabitStats(habitId, userId);
     return res.status(200).json(successResponse(result));
+  };
+
+  restore = async (req: Request<{ habitId: string; id: string }>, res: Response) => {
+    const userId = req.user!.id;
+    const { habitId, id } = req.params;
+    const result = await this.checkinsService.restoreCheckin(id, habitId, userId);
+    return res.status(200).json(successResponse(result, 'Check-in restaurado'));
   };
 
   delete = async (req: Request<{ habitId: string; id: string }>, res: Response) => {

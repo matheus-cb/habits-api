@@ -56,18 +56,34 @@ A fronteira é a mesma em toda a camada: **a IA sugere, o código valida, a deci
 | **INV-14** | Numeral que não está no cálculo **reprova** a redação | `insights/narration.guard.ts` |
 | **INV-15** | Sem `ANTHROPIC_API_KEY` a API segue íntegra; `source` declara quem redigiu | `insights/narrator.ts` |
 | **INV-16** | Chave, prompt integral e raciocínio do modelo nunca vão para resposta nem log | `insights/narrator.anthropic.ts` |
-| **INV-17** | Tools MCP são somente leitura; escrever **não** é tool | `src/mcp/tools.ts` |
+| **INV-17** | Tool **nomeada** é somente leitura; escrita só pela primitiva `request` | `src/mcp/tools.ts` |
 | **INV-18** | A IA nunca executa: reagendamento é proposta **assinada** aplicada só no confirm | `insights/proposal.service.ts` |
 | **INV-19** | Proposta é sugestão, não autorização — o confirm revalida dono, hábito e dias | `insights/proposal.service.ts` |
 
-INV-14 não se resolve com prompt: o guarda extrai os numerais e reprova o que não
-está no relatório, e o que ele **não** prova está declarado em
-`narration.guard.ts`. O MCP é para assistente **externo**. Detalhes em `docs/IA.md`.
+INV-14 não se resolve com prompt — o guarda extrai os numerais e reprova o que não está
+no relatório; o que ele **não** prova está em `narration.guard.ts`. Ver `docs/IA.md`.
+
+### Primitivas do MCP
+
+O assistente **compõe** as chamadas em vez de escolher entre tools prontas: o
+guardião deixa de ser a ausência de método e passa a ser permissão de banco,
+política de linha e allowlist fechada. Por quê e a que custo: `docs/PRIMITIVAS.md`.
+
+| # | Regra | Onde vive |
+|---|---|---|
+| **INV-25** | A superfície anunciada é a declarada, e só **uma** tool escreve | `src/mcp/primitivas.ts` |
+| **INV-26** | Toda rota do Express está classificada: permitida ou negada, com motivo | `src/mcp/request.ts` |
+| **INV-27** | `query` não escreve por **permissão** e não vê dado alheio por **RLS** | `src/mcp/query.ts` |
+| **INV-28** | Escrita do assistente é marcada na origem, e o delete é sempre **lógico** | `src/mcp/origem.ts`, `src/config/soft-delete.ts` |
+
+INV-27 falha **fechada**: sem a variável de sessão a política devolve zero linhas, não
+tudo. INV-28 nunca sub-registra e às vezes sobre-registra — a assimetria que a torna
+aceitável está em `origem.ts`.
 
 ### Contrato com os clientes
 
-O outro lado destas quatro vive em `habits-dashboard` e `habits-mobile`; a API é
-quem produz o status que as dispara.
+O outro lado destas cinco vive em `habits-dashboard` e `habits-mobile`; a API é quem
+produz o status que as dispara.
 
 | # | Regra | Onde vive |
 |---|---|---|
@@ -79,9 +95,8 @@ quem produz o status que as dispara.
 
 ## Comandos de validação
 
-Duas camadas, por dependência externa. Rode a maior que o ambiente permitir e
-**declare no relatório final qual não rodou** — silenciar isso é reportar verde
-falso.
+Quatro camadas, por dependência externa. Rode a maior que o ambiente permitir e
+**declare no relatório final qual não rodou** — silenciar isso é reportar verde falso.
 
 **Camada 1 — sem dependência externa.** Mínimo obrigatório de qualquer alteração;
 roda em qualquer sandbox de agente.
@@ -94,10 +109,9 @@ npm run lint              # --max-warnings=0
 npm run test:unit
 ```
 
-Três armadilhas, detalhadas em `docs/DECISOES.md`: `npm run build` passa com erro
-de tipo (`tsup` não typecheca — rode `tsc --noEmit`); `src/mcp/tools.ts` importa de
-`zod/v4` ou o `tsc` estoura o heap; e migração precisa estar rastreada **e**
-atualizada — checagem 8 do gate mais `check:schema-drift`.
+Três armadilhas, em `docs/DECISOES.md`: `build` passa com erro de tipo; `src/mcp/` e
+`src/schemas/` importam de `zod/v4` ou o `tsc` estoura o heap; migração precisa estar
+rastreada **e** atualizada (checagem 8 do gate mais `check:schema-drift`).
 
 **Camada 2 — exige PostgreSQL.** Apaga as três tabelas, então roda em banco
 **separado** (`habits_test`, de `.env.test`); `tests/setup.ts` recusa qualquer nome
@@ -123,29 +137,18 @@ O smoke vive em `scripts/smoke.sh`, não no workflow: **uma cópia**, rodável n
 dois lugares. Embutir no YAML garante duas versões divergindo em silêncio.
 
 **Camada 3.5 — o repositório reproduz?** As outras testam o código; esta testa o
-**repositório**, via `git archive HEAD`. Fora do CI de propósito: lá todo checkout
-já é clone limpo. Ver `docs/DECISOES.md`.
+**repositório**, via `git archive HEAD` — fora do CI, onde todo checkout já é limpo.
 
 ```bash
 npm run verify:repro
 ```
 
-`npm run verify` roda a Camada 1 e tenta as outras. O que não puder rodar **avisa
-em vez de falhar** e o script sai com **código 3**, para automação não confundir
-"pulou" com "passou". A Camada 3 não sobe a stack sozinha — leva minutos e
-derrubaria a de quem chamou.
+`npm run verify` roda a Camada 1 e tenta as outras. O que não puder rodar **avisa em
+vez de falhar** e o script sai com **código 3**, para automação não confundir "pulou"
+com "passou". A Camada 3 não sobe a stack sozinha: leva minutos e derrubaria a de
+quem chamou.
 
-### Ferramentas exigidas
-
-| Ferramenta | Versão | Como conferir |
-|---|---|---|
-| Node | **22** (o do CI) | `node --version` |
-| Docker | daemon **em execução**, não só o cliente | `docker info` |
-| `jq` | qualquer | `jq --version` |
-| `git archive` | do próprio git | `git archive --format=tar HEAD \| tar -t \| head -1` |
-
-`docker --version` responde com o daemon desligado. Só `docker info` prova que as
-Camadas 2 e 3 são executáveis.
+Ferramentas e versões exigidas: `docs/FERRAMENTAS.md`.
 
 ## Definição de pronto
 
@@ -153,11 +156,9 @@ Camadas 2 e 3 são executáveis.
 - Invariante nova entra na tabela acima **com** o arquivo onde vive.
 - Toda invariante tem também um teste **adversário**: um que tenta violá-la e
   exige que seja barrada. Teste de caminho feliz não prova fronteira.
-- **O gate local roda o que o CI roda.** A checagem 9 do `check-agent-docs.sh`
-  compara os comandos `npm` do workflow com o `scripts/verify.sh`: o workflow é a
-  fonte, o script é o derivado. Duas listas descrevendo a mesma coisa, sem nada
-  comparando, foi como `npm install` no verify e `npm ci` no CI conviveram — e o
-  CI ficou vermelho sem nenhuma camada local poder ver.
+- **O gate local roda o que o CI roda.** A checagem 9 compara os comandos `npm` do
+  workflow com o `verify.sh` — o workflow é a fonte, o script é o derivado. Duas
+  listas sem nada comparando foi como `npm install` e `npm ci` conviveram.
 - **Verificação nova tem caso vizinho.** Depois de escrever um gate, uma trava ou
   um guarda, construa o caso que ele **deveria** pegar e veja-o pegar — não o caso
   que motivou escrevê-lo, que já passa por construção. "Toda invariante tem teste

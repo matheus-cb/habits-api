@@ -14,6 +14,13 @@ generator client {
   binaryTargets = ["native", "linux-musl-openssl-3.0.x", "linux-musl-arm64-openssl-3.0.x"]
 }
 
+/// Origem de um registro. `assistant` marca o que foi criado por um turno do
+/// assistente, para o histórico continuar legível como evidência.
+enum CreatedVia {
+  user
+  assistant
+}
+
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
@@ -33,30 +40,57 @@ model User {
 }
 
 model Habit {
-  id            String   @id @default(uuid())
+  id            String    @id @default(uuid())
   title         String
   description   String?
   userId        String
-  scheduledDays Int[]    @default([])
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  scheduledDays Int[]     @default([])
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  /// Soft delete. `null` = ativo. Apagar hábito destruiria todo o histórico de
+  /// check-ins por cascade, e o histórico é o valor inteiro do app — então o
+  /// caminho alcançável por assistente é lógico e reversível. O físico é um
+  /// script local, fora do HTTP.
+  deletedAt     DateTime?
+  /// Identidade do lote de exclusão, separada do `deletedAt` de propósito:
+  /// timestamp é fato temporal, não identidade de agrupamento.
+  deleteBatchId String?
+  /// Quem criou. Preenchido pelo servidor, nunca pelo corpo da requisição.
+  createdVia    CreatedVia @default(user)
 
   user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   checkins Checkin[]
 
   @@index([userId])
+  @@index([userId, deletedAt])
   @@map("habits")
 }
 
 model Checkin {
-  id        String   @id @default(uuid())
+  id        String    @id @default(uuid())
   habitId   String
-  date      DateTime @default(now()) @db.Date
-  createdAt DateTime @default(now())
+  date      DateTime  @default(now()) @db.Date
+  createdAt DateTime  @default(now())
+  /// Soft delete. Desfazer check-in passa a ser reversível — antes destruía o
+  /// registro.
+  deletedAt     DateTime?
+  /// Lote de exclusão. Quando um hábito é apagado, seus check-ins ativos recebem
+  /// o MESMO `deleteBatchId`, e o restore devolve só aquele lote. Antes o
+  /// marcador era o `deletedAt`, e dois deletes no mesmo milissegundo faziam o
+  /// restore ressuscitar o que a pessoa havia desfeito de propósito.
+  deleteBatchId String?
+  /// Quem registrou este check-in. O histórico só é evidência se declarar origem.
+  createdVia    CreatedVia @default(user)
 
   habit Habit @relation(fields: [habitId], references: [id], onDelete: Cascade)
 
-  @@unique([habitId, date])
+  /// A unicidade real vive num índice PARCIAL criado na migração
+  /// (`WHERE "deletedAt" IS NULL`), que o Prisma não sabe declarar. Este
+  /// `@@unique` é mantido fora do schema de propósito — ver a migração
+  /// `add_soft_delete`. Sem o parcial, marcar → desfazer → marcar no mesmo dia
+  /// falharia contra uma linha invisível.
   @@index([habitId])
+  @@index([habitId, deletedAt])
+  @@index([deleteBatchId])
   @@map("checkins")
 }
