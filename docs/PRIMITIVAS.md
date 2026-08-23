@@ -140,6 +140,16 @@ cliente abusivo, e **não** é defesa contra abuso distribuído.
   sobrescrevem sem guardar o valor anterior — são as duas rotas irreversíveis do
   alcance, e a razão de `destructiveHint` ser `true`. Com histórico, as duas viram
   reversíveis e a anotação vira `false` sozinha, porque é derivada.
+
+  Isto não é lacuna da camada MCP: é uma assimetria do domínio que as primitivas
+  tornaram **alcançável por composição**. E é a única promessa do objetivo do
+  `AGENTS.md` — "exato e recuperável" — que hoje não se cumpre.
+
+  Custa menos do que parece para metade do caso: o token assinado da proposta de
+  reagendamento já carrega `currentScheduledDays`, que é o estado ANTERIOR do
+  agendamento. A informação existe, é usada para revalidar no confirm, e é
+  descartada dez minutos depois. Persistir o que já se calcula é mais barato que
+  passar a calcular.
 - **`paths` do OpenAPI.** Dívida declarada. O conserto é derivar da mesma fonte
   que `habits://contratos`.
 - **Teto de taxa distribuído.** Ver acima: hoje é por processo.

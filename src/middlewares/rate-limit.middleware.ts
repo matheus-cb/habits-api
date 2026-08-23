@@ -43,6 +43,13 @@ import { TooManyRequestsError } from '@/utils/errors';
  * Os dois existem porque nenhum cobre o outro. Atrás de NAT, o teto por IP pune
  * pessoas diferentes pelo consumo de uma — por isso ele é folgado, e o aperto
  * fica no teto por usuário.
+ *
+ * E o caso extremo desta aplicação, que é o normal e não o extremo: a primitiva
+ * `request` chama `/api/v1` pelo **loopback**. Todo o tráfego que ela gera vem de
+ * `127.0.0.1`, junto do tráfego de qualquer cliente rodando na mesma máquina.
+ * Num serviço acessado assim, **teto por IP é na prática teto do processo** — ele
+ * não separa ninguém de ninguém. É por isso que ele existe só para conter
+ * enxurrada sem token, e não para dosar uso.
  */
 
 interface Janela {

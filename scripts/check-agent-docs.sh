@@ -37,24 +37,50 @@ linhas_claude="$(wc -l <CLAUDE.md)"
 [ "$linhas_claude" -le 40 ] ||
   falhar "CLAUDE.md tem $linhas_claude linhas (máx. 40). Mova o que não for exclusivo do Claude Code para o AGENTS.md."
 
-# 5. Adesão inversa é pior: passado um volume de instrução, o modelo perde
-#    aderência, e o problema deixa de ser de organização.
+# 5. Dois tetos, porque são duas preocupações diferentes — e a segunda existe
+#    porque eu tentei substituí-la pela primeira.
 #
-#    A contagem exclui LINHAS DE TABELA, e a exclusão foi acrescentada depois de a
-#    checagem começar a punir o que ela deveria proteger: com 30 invariantes, a
-#    tabela sozinha passa de 40 linhas, e eu me vi comprimindo a prosa que EXPLICA
-#    as regras para caber — apagando o "por quê" para preservar espaço para o "o
-#    quê". Exatamente o contrário do objetivo.
+#    A versão original tinha um teto só, de 200 linhas combinadas, com a
+#    justificativa "passado um volume de instrução, o modelo perde aderência".
+#    Depois de INV-29 e INV-30 ela reprovava por seis linhas, e eu me vi
+#    comprimindo prosa pela terceira vez — apagando o "por quê" para preservar
+#    espaço para o "o quê", que é o contrário do objetivo. O diagnóstico estava
+#    certo e a correção estava errada: eu passei a contar só prosa, mantive o
+#    comentário sobre volume, e com isso 300 linhas de tabela passariam.
 #
-#    Linha de tabela é referência densa: uma regra, um arquivo, nenhuma
-#    redundância. O que dilui é prosa, e é prosa que este teto mede. Regra nova
-#    passa a custar uma linha de tabela e nada do orçamento — que é o incentivo
-#    certo, porque o problema nunca foi ter regras demais, foi explicá-las duas
-#    vezes.
-prosa() { grep -cvE '^\s*\|' "$1"; }
-total=$(( $(prosa CLAUDE.md) + $(prosa AGENTS.md) ))
-[ "$total" -le 200 ] ||
-  falhar "AGENTS.md + CLAUDE.md somam $total linhas de prosa (fora de tabela); acima de 200 a aderência cai."
+#    Duas coisas erradas nisso, e a segunda é pior que a primeira:
+#
+#    - **Troquei a preocupação e mantive o texto da anterior.** "Volume total
+#      prejudica aderência" e "prosa duplicada dilui" são afirmações diferentes —
+#      quanto, e razão sinal/ruído. Passei a medir a segunda com o comentário da
+#      primeira, que é a forma exata dos treze defeitos desta safra: o comentário
+#      descreve uma coisa e o código faz outra.
+#    - **A troca converteu uma reprovação em aprovação no mesmo commit.** 206 pela
+#      métrica antiga, 166 pela nova. Não torna o diagnóstico falso; torna o ônus
+#      da prova meu, e a forma de descarregá-lo não é argumentar melhor — é
+#      preservar a proteção que eu tinha removido.
+#
+#    Então: os dois.
+#
+#    5a — PROSA, teto apertado. É o que dilui, e explicação duplicada é o defeito
+#         que este arquivo já teve. Regra nova não consome deste orçamento.
+#    5b — TOTAL, teto folgado. É o que custa aderência. Existe porque a resposta
+#         honesta à pergunta "existe algum número de linhas de tabela que seria
+#         demais?" é sim: sessenta invariantes não caberiam na atenção do modelo
+#         só por estarem em tabela. Se a resposta fosse não, esta checagem nunca
+#         teria sido sobre volume, e o comentário original estaria errado desde o
+#         começo.
+#
+#    O incentivo fica certo pelos dois lados: regra nova custa uma linha de tabela
+#    e nada de prosa, e o arquivo continua não podendo crescer sem limite.
+prosa() { grep -cvE '^[[:space:]]*\|' "$1"; }
+linhas_de_prosa=$(( $(prosa CLAUDE.md) + $(prosa AGENTS.md) ))
+linhas_totais=$((linhas_claude + $(wc -l <AGENTS.md)))
+
+[ "$linhas_de_prosa" -le 200 ] ||
+  falhar "AGENTS.md + CLAUDE.md têm $linhas_de_prosa linhas de prosa (máx. 200); explicação duplicada dilui. Tabela não conta."
+[ "$linhas_totais" -le 320 ] ||
+  falhar "AGENTS.md + CLAUDE.md somam $linhas_totais linhas (máx. 320); o arquivo ficou grande para o modelo carregar."
 
 # 6. Import quebrado carrega nada e não avisa. Vale para os dois arquivos.
 for arquivo in AGENTS.md CLAUDE.md; do
@@ -150,4 +176,4 @@ if [ "$falhas" -gt 0 ]; then
   exit 1
 fi
 
-echo "Convenção dos arquivos de contexto: ok ($bytes bytes no AGENTS.md, $total linhas no total)."
+echo "Convenção dos arquivos de contexto: ok ($bytes bytes; $linhas_de_prosa/200 de prosa, $linhas_totais/320 no total)."

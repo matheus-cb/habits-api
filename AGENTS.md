@@ -6,6 +6,12 @@
 endpoints em `/api/v1`. A prioridade é que o registro de hábitos seja exato e
 recuperável; a IA é assistiva e **nunca executa sozinha**.
 
+**Recuperável vale hoje para exclusão e não vale para edição.** `PUT /habits/:id` e
+o confirm do reagendamento sobrescrevem sem histórico: o título de um hábito de três
+anos pode ser reescrito e o anterior deixa de existir, sem delete, sem purge e sem
+rastro. É a única promessa deste parágrafo que não se cumpre, e está aqui em vez de
+numa nota de rodapé por isso. Ver `docs/PRIMITIVAS.md`.
+
 Regra nova, invariante ou comando entra **neste arquivo**, que todo agente lê. O
 `CLAUDE.md` apenas o importa e guarda o que é mecânica exclusiva do Claude Code;
 `scripts/check-agent-docs.sh` verifica isso, como qualquer outra regra daqui.

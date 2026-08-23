@@ -68,8 +68,18 @@ import { BadRequestError } from '@/utils/errors';
  * A segunda deixou de ser observável ATRAVÉS da primitiva, e é por isso que o
  * teste de INV-27 a exercita direto na conexão somente-leitura, sem o envelope.
  * Verificar só o caminho de cima diria "a escrita falha" e deixaria de provar
- * **por quê** — e o dia em que alguém remover o envelope por otimização, é a
- * permissão que tem de estar de pé.
+ * **por quê**.
+ *
+ * ## Se você for remover o envelope
+ *
+ * Ele é a mais frágil das três defesas desta primitiva, e a **única que é deste
+ * arquivo** — as outras duas são grant e política, que vivem no banco. Removê-lo
+ * por otimização parece seguro, porque o teste de escrita pela primitiva continua
+ * passando: a permissão assume o lugar da gramática e a chamada segue falhando.
+ * O que muda em silêncio é o teto de volume, que volta a ser `slice` na heap.
+ *
+ * Então: remover exige rodar `tests/integration/primitivas-mcp.test.ts` inteiro,
+ * e ler os dois casos de INV-27 — não só ver a suíte verde.
  */
 const MAXIMO_DE_LINHAS = 500;
 
