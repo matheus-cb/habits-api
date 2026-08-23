@@ -18,7 +18,24 @@
  */
 
 /** Alcançáveis por `query`: com grant de SELECT **e** política de RLS por usuário. */
-export const TABELAS_EXPOSTAS = ['users', 'habits', 'checkins', 'habit_revisions'] as const;
+export const TABELAS_EXPOSTAS = [
+  'users',
+  'habits',
+  'checkins',
+  'habit_revisions',
+  // As quatro do assistente conversacional. Expostas pelo mesmo motivo do
+  // histórico de edição: "o que eu pedi ao assistente na semana passada?" e
+  // "quanto isto está me custando?" são perguntas que se quer fazer em linguagem
+  // natural, e o RLS as escopa pelo dono.
+  //
+  // `ai_calls` é a mais útil das quatro e a que menos parece: ela é o extrato de
+  // consumo. Sem ela exposta, a pessoa depende da interface para saber o custo, e
+  // não pode perguntar "em que dia eu gastei mais?".
+  'conversations',
+  'conversation_messages',
+  'pending_actions',
+  'ai_calls',
+] as const;
 
 /** Existem e não são alcançáveis. O motivo é o que impede a lista de virar despejo. */
 export const TABELAS_NAO_EXPOSTAS: readonly { tabela: string; motivo: string }[] = [

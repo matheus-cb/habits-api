@@ -34,7 +34,9 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  habits Habit[]
+  habits        Habit[]
+  conversations Conversation[]
+  aiCalls       AiCall[]
 
   @@map("users")
 }
@@ -136,4 +138,126 @@ model Checkin {
   @@index([habitId, deletedAt])
   @@index([deleteBatchId])
   @@map("checkins")
+}
+
+/// Uma conversa com o assistente. O histórico vive aqui, não no cliente.
+///
+/// No servidor porque o histórico é o que o modelo recebe a cada volta: se
+/// viesse do cliente, um cliente modificado poderia reescrever o que "foi dito
+/// antes" e assim reescrever o contexto de uma decisão. É a mesma razão de o
+/// `userId` vir do JWT e não do corpo (INV-10).
+model Conversation {
+  id        String   @id @default(uuid())
+  userId    String
+  /// Primeira linha da primeira mensagem, para a lista de conversas.
+  title     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages ConversationMessage[]
+  actions  PendingAction[]
+
+  @@index([userId, updatedAt(sort: Desc)])
+  @@map("conversations")
+}
+
+enum MessageRole {
+  user
+  assistant
+  /// Resultado de ferramenta. Fica no histórico porque o modelo precisa vê-lo na
+  /// volta seguinte, e porque é o rastro do que o assistente consultou.
+  tool
+}
+
+model ConversationMessage {
+  id             String      @id @default(uuid())
+  conversationId String
+  role           MessageRole
+  /// Texto, ou o JSON dos blocos quando a volta tem uso de ferramenta. O formato
+  /// é o da API da Anthropic para poder ser reenviado sem tradução — traduzir
+  /// ida e volta seria um segundo lugar onde o histórico pode divergir.
+  content        String
+  /// Ordem monotônica. Mesma razão de `HabitRevision.ordem`: `createdAt` empata
+  /// no mesmo milissegundo, e conversa fora de ordem é conversa diferente.
+  ordem          BigInt      @default(autoincrement())
+  createdAt      DateTime    @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, ordem])
+  @@map("conversation_messages")
+}
+
+enum ActionStatus {
+  /// Proposta, aguardando a pessoa.
+  pending
+  approved
+  rejected
+  /// A pessoa aprovou e a execução falhou. Distinto de `rejected`: um é decisão,
+  /// o outro é defeito, e confundir os dois esconde erro como se fosse escolha.
+  failed
+  /// Passou do prazo sem decisão.
+  expired
+}
+
+/// Uma escrita que o assistente PROPÔS e que ainda não aconteceu.
+///
+/// É o coração da fronteira: o modelo produz esta linha, e só um ato explícito da
+/// pessoa a executa. O método e o caminho são conferidos contra a allowlist DUAS
+/// vezes — quando a proposta nasce e quando é aprovada —, porque entre as duas
+/// alguém pode ter mudado a lista, e o que vale é a lista do momento da execução.
+model PendingAction {
+  id             String       @id @default(uuid())
+  conversationId String
+  /// O `tool_use_id` da chamada do modelo. É por ele que o resultado volta ao
+  /// histórico na forma que a API espera.
+  toolUseId      String
+  metodo         String
+  path           String
+  /// Corpo da requisição, como JSON. `null` quando a rota não pede corpo.
+  corpo          String?
+  /// O que o assistente disse que isto faz, para a pessoa ler antes de aprovar.
+  resumo         String
+  status         ActionStatus @default(pending)
+  /// Status HTTP da execução, quando houve.
+  resultStatus   Int?
+  resultBody     String?
+  expiresAt      DateTime
+  createdAt      DateTime     @default(now())
+  decidedAt      DateTime?
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, status])
+  @@map("pending_actions")
+}
+
+/// Registro de toda chamada ao modelo. A auditoria que faltava.
+///
+/// Sem isto, `createdVia = assistant` diz que a IA escreveu e não diz o que ela
+/// consultou, quanto custou, nem quantas voltas deu. Era a ausência declarada em
+/// `docs/PRIMITIVAS.md`, e ela deixa de ser aceitável quando existe superfície de
+/// chat: um laço de ferramentas mal conduzido gasta dinheiro real.
+///
+/// O que NÃO entra aqui: o conteúdo do prompt e o raciocínio do modelo (INV-16).
+/// Contagem, duração, modelo e resultado — não texto.
+model AiCall {
+  id             String   @id @default(uuid())
+  userId         String
+  conversationId String?
+  model          String
+  inputTokens    Int
+  outputTokens   Int
+  /// Quantas ferramentas o modelo chamou nesta volta.
+  toolCalls      Int      @default(0)
+  durationMs     Int
+  /// `stop_reason` da API, ou o código do erro.
+  outcome        String
+  createdAt      DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("ai_calls")
 }

@@ -254,6 +254,53 @@ export const ROTAS_NEGADAS: readonly { metodo: string; padrao: string; motivo: s
     padrao: '/api-docs.json',
     motivo: 'já chega pelo recurso habits://openapi, sem gastar uma chamada',
   },
+  // ── O assistente conversacional do dashboard ────────────────────────────────
+  //
+  // TODAS negadas, e o motivo é o mesmo para as seis: **recursão**.
+  //
+  // A primitiva `request` é o que o assistente usa para agir. Se ela pudesse
+  // chamar o próprio assistente, uma conversa poderia abrir outra conversa, que
+  // proporia ações, que abririam outra — um laço de custo sem teto que nenhum dos
+  // dois limites pega, porque cada nível parece uma conversa legítima.
+  //
+  // É a mesma decisão que negou `POST /mcp` a si mesmo, e pela mesma razão. Ler o
+  // histórico de conversa continua possível pela primitiva `query`, que é leitura
+  // de verdade e passa pela RLS.
+  {
+    metodo: 'GET',
+    padrao: '/api/v1/assistant/status',
+    motivo: 'recursão: o assistente não precisa saber de si mesmo',
+  },
+  {
+    metodo: 'GET',
+    padrao: '/api/v1/assistant/conversations',
+    motivo: 'recursão; o histórico é legível por `query`, que passa pela RLS',
+  },
+  {
+    metodo: 'GET',
+    padrao: '/api/v1/assistant/conversations/:id',
+    motivo: 'recursão; idem',
+  },
+  {
+    metodo: 'POST',
+    padrao: '/api/v1/assistant/messages',
+    motivo: 'recursão: uma conversa abriria outra, e o custo não teria teto',
+  },
+  {
+    metodo: 'POST',
+    padrao: '/api/v1/assistant/actions/:id/approve',
+    motivo: 'aprovar a própria proposta é o oposto do desenho — a decisão é da pessoa',
+  },
+  {
+    metodo: 'POST',
+    padrao: '/api/v1/assistant/actions/:id/reject',
+    motivo: 'idem: decidir sobre a própria proposta',
+  },
+  {
+    metodo: 'POST',
+    padrao: '/api/v1/assistant/conversations/:id/resume',
+    motivo: 'recursão: retomaria a si mesmo sem limite de profundidade',
+  },
 ];
 
 /**

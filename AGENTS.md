@@ -96,6 +96,25 @@ INV-33 fecha um flake: o pool keep-alive do `fetch` guarda socket para porta
 efêmera morta, e o SO recicla essas portas. Fora da faixa, a colisão é impossível.
 Detalhes e ausências declaradas em `docs/PRIMITIVAS.md`.
 
+### Assistente conversacional
+
+O chat do dashboard usa as MESMAS primitivas do MCP, com uma diferença que é o
+desenho: `agir` **não executa** — propõe. No MCP o cliente é o Claude Code, que
+tem confirmação própria; aqui não há, e sem a parada a fronteira dependeria do
+prompt. Detalhes em `docs/ASSISTENTE.md`.
+
+| # | Regra | Onde vive |
+|---|---|---|
+| **INV-34** | Leitura executa; escrita **para** e vira ação pendente que só a pessoa converte | `assistant/assistant.service.ts` |
+| **INV-35** | Toda chamada ao modelo é registrada — tokens, duração, desfecho; **nunca** conteúdo | `prisma/schema.prisma` → `AiCall` |
+| **INV-36** | Teto diário de tokens recusa **antes** de chamar o modelo | `assistant/orcamento.ts` |
+
+INV-34 confere a allowlist duas vezes, e a que conta é a da **aprovação**: entre
+propor e aprovar passam minutos, e o que vale é a lista do momento da execução.
+INV-35 é a auditoria que `docs/PRIMITIVAS.md` declarava ausente — ela deixou de ser
+opcional no dia em que houve chat, porque um laço de ferramentas gasta dinheiro
+real. As rotas do próprio assistente estão **negadas** na allowlist: recursão.
+
 ### Contrato com os clientes
 
 O outro lado destas cinco vive em `habits-dashboard` e `habits-mobile`; a API é quem
@@ -177,31 +196,20 @@ Ferramentas e versões exigidas: `docs/FERRAMENTAS.md`.
 - **O gate local roda o que o CI roda.** A checagem 9 compara os comandos `npm` do
   workflow com o `verify.sh` — o workflow é a fonte, o script é o derivado. Duas
   listas sem nada comparando foi como `npm install` e `npm ci` conviveram.
-- **Verificação nova tem caso vizinho.** Depois de escrever um gate, uma trava ou um
-  guarda, construa o caso que ele **deveria** pegar e veja-o pegar — não o caso que o
-  motivou, que já passa por construção. Vale para os gates, e é onde ninguém pensa em
-  aplicar. Onze defeitos desta safra olhavam para a metade errada.
-- **Ancore em sumário, nunca em substring de saída livre.** Duas vezes nesta safra
-  uma asserção casou com a mensagem errada: `isError` satisfeito por
-  `Tool request not found` em vez de pela allowlist, e `grep "failed"` casando com
-  `Raw query failed` dos testes adversários — este reportou 25 falhas em 25
-  execuções verdes. Asserção sobre recusa exige a RAZÃO da recusa, e contagem de
-  falha exige a linha de sumário (`^Tests: +N failed`).
-- **Filtre a exibição, nunca a captura.** `cmd 2>&1 | tee log | grep …`, e não
-  `cmd | grep …`. Um flake ficou sem diagnóstico porque o `grep` do turno descartou o
-  NOME do teste que falhou; a evidência não estava mais disponível para ninguém olhar.
-  `scripts/verify.sh` grava tudo em `.verify.log`.
-- **Antes de confiar num instrumento novo, calibre-o contra resultado conhecido.**
-  Cinco defeitos desta safra foram instrumento certo em ambiente errado — `npm install`
-  contra CI que usa `npm ci`, container velho contra código novo, screenshot escalado
-  lido como 1:1. O instrumento funcionava e reportava sobre outra coisa. E a quinta é
-  na direção INVERSA: um cenário passou em Node puro e falhou deterministicamente sob
-  Jest. O ambiente mais permissivo **esconde** o defeito, e parar nele daria medição
-  correta com conclusão errada. Reproduza no ambiente que vale, não no mais simples.
-- **Asserção sobre EFEITO, nunca sobre chamada.** `resolves.toBeUndefined()` num
-  helper que não faz nada passa para sempre. Um helper de teardown que buscava o
-  dispatcher do undici era no-op silencioso dentro do Jest, e o que o pegou foi exigir
-  que os sockets DIMINUÍSSEM. Vale em dobro para sugestão de revisor não medida.
+- **Verificação nova tem caso vizinho.** Construa o caso que o gate **deveria** pegar
+  e veja-o pegar — não o que o motivou, que já passa por construção. Vale para gates.
+- **Ancore em sumário, nunca em substring de saída livre.** Asserção sobre recusa
+  exige a RAZÃO da recusa; contagem de falha exige `^Tests: +N failed`.
+- **Filtre a exibição, nunca a captura.** `cmd 2>&1 | tee log | grep …`. O
+  `verify.sh` grava tudo em `.verify.log`.
+- **Calibre instrumento novo contra resultado conhecido**, e reproduza no ambiente
+  que vale — o mais permissivo **esconde** defeito.
+- **Asserção sobre EFEITO, nunca sobre chamada.** Vale em dobro para sugestão de
+  revisor não medida.
+
+Os treze defeitos que produziram essas cinco regras, cada um com o que ele fez e como
+foi pego, estão em `docs/LICOES.md`. Aqui ficam as regras; lá fica o porquê.
+
 - **`git commit` em `main`/`master` é recusado por hook.** `npm run hooks:install`
   instala `scripts/hooks/pre-commit`. Hook não é clonado, então a instalação é passo
   explícito — e a regra deixa de depender de conferir o branch.

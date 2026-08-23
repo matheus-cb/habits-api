@@ -23,6 +23,32 @@ const envSchema = z.object({
   ANTHROPIC_MODEL: z.string().default('claude-opus-5'),
   /** Teto de saída da redação. Resumo é texto curto; não precisa de mais. */
   AI_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(256).max(8192).default(1024),
+
+  /**
+   * Teto de tokens de SAÍDA por usuário por dia no assistente.
+   *
+   * Não é preferência: é a diferença entre uma conversa e uma conta imprevisível.
+   * O laço de ferramentas dá várias voltas por mensagem, e um modelo que decide
+   * consultar dez vezes gasta dez vezes. Sem teto, o custo é ilimitado por
+   * construção — e quem paga não é quem conversa.
+   *
+   * Saída e não entrada porque saída custa cinco vezes mais e é a que o laço
+   * multiplica.
+   */
+  ASSISTANT_DAILY_OUTPUT_TOKENS: z.coerce.number().int().min(1_000).default(120_000),
+
+  /**
+   * Máximo de voltas do laço por mensagem.
+   *
+   * O laço termina quando o modelo para de pedir ferramenta. Um modelo confuso
+   * pode não parar — consultar, achar estranho, consultar de novo. Este teto é o
+   * que garante que a mensagem termina, e ele é atingido em silêncio hoje: o
+   * assistente responde com o que tem e diz que parou.
+   */
+  ASSISTANT_MAX_TURNS: z.coerce.number().int().min(1).max(24).default(10),
+
+  /** Prazo de uma ação proposta. Passado isso, aprovar é recusado. */
+  ASSISTANT_ACTION_TTL_MINUTES: z.coerce.number().int().min(1).default(30),
   /** Timeout do provedor, em ms. Estourar cai no redator determinístico. */
   AI_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120_000).default(20_000),
 
