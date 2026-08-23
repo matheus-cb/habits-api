@@ -13,11 +13,30 @@ cd "$repo"
 pulou=""
 falhou=0
 
+# A saída INTEIRA vai para disco, sempre — e o terminal continua vendo tudo.
+#
+# Isto existe por um flake que ficou sem diagnóstico: um teste de integração
+# falhou uma vez, eu tinha rodado o verify com `| grep "Tests:|RESULTADO"` e o
+# filtro descartou o NOME do teste. Nove execuções depois não reproduziu, e a
+# informação não estava mais disponível para ninguém olhar.
+#
+# É uma categoria diferente das outras desta safra: nas outras a evidência
+# existia e a verificação olhava para o lado errado; nesta a evidência foi
+# destruída. E é a mais barata de fechar — a regra é **filtre a exibição, nunca a
+# captura**, e `tee` custa o mesmo que não usar.
+LOG="${VERIFY_LOG:-$repo/.verify.log}"
+: >"$LOG"
+
 passo() {
   echo ""
   echo "▶ $*"
-  if ! "$@"; then
+  {
+    echo ""
+    echo "▶ $*"
+  } >>"$LOG"
+  if ! "$@" 2>&1 | tee -a "$LOG"; then
     echo "✗ falhou: $*" >&2
+    echo "✗ falhou: $*" >>"$LOG"
     falhou=1
   fi
 }
@@ -57,6 +76,20 @@ else
   # não é o que o código espera, e a falha aparece disfarçada de bug de domínio.
   passo ./scripts/check-schema-drift.sh
   passo npm run test:integration
+  # A MESMA suíte com o fuso deslocado 17 horas do local.
+  #
+  # O servidor resolve o dia em UTC (INV-04) e vários testes montam datas com
+  # `new Date()` e aritmética LOCAL. Hoje isso é seguro — eles comparam instantes
+  # absolutos derivados da mesma base, não chaves de dia construídas à mão — e
+  # verifiquei sob UTC+14 e UTC−12. Mas a segurança é uma propriedade de COMO os
+  # testes estão escritos, não do desenho, e o próximo teste escrito com data
+  # relativa pode não ter.
+  #
+  # O defeito que esta safra corrigiu no servidor era exatamente isto: dia
+  # resolvido em horário local contra coluna `@db.Date` que o Prisma devolve em
+  # UTC — invisível em UTC−3. O servidor foi corrigido; rodar a suíte num fuso
+  # deslocado é o que impede a suíte de herdar a convenção antiga sem ninguém ver.
+  passo npm run test:integration:tz
 fi
 
 echo ""

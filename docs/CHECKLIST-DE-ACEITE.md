@@ -66,7 +66,17 @@ Estado real, medido. Item desmarcado é lacuna conhecida, não esquecimento.
 - [x] Sem chave, o endpoint responde igual, com `source: "deterministic"`.
 - [x] `fallbackReason` é um de cinco códigos fechados, nunca a mensagem do provedor.
 - [x] A resposta não carrega chave, prompt integral nem raciocínio do modelo.
-- [x] Tools MCP são somente leitura, por tipo e por lista fechada.
+- [x] Tools MCP **nomeadas** são somente leitura, por tipo e por lista fechada.
+- [x] A superfície do servidor COMPLETO é conferida, não a do módulo: uma tool
+      acrescentada em `server.ts` reprova INV-25.
+- [x] Exatamente **uma** tool não se declara somente leitura, e é `request`.
+- [x] `query` não escreve por **permissão** do Postgres, e falha fechada sem a
+      variável de sessão: zero linhas, não tudo.
+- [x] Toda rota do Express está classificada como permitida ou negada, com
+      motivo — e o gate foi verificado com uma rota de mentira, que ele nomeia.
+- [x] Escrita do assistente fica marcada em `createdVia`, e escrita da pessoa
+      não. Os dois casos existem: é o par que prova que a coluna separa algo.
+- [x] Delete pelo MCP é lógico e volta por `/restore`; o físico não é rota.
 - [x] Nenhuma tool MCP aceita `userId`: o escopo vem do JWT, por closure.
 - [x] Reagendamento só é aplicado pelo `confirm`, com assinatura HMAC válida.
 - [x] Proposta expira em 10 minutos.

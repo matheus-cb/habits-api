@@ -6,6 +6,11 @@
 endpoints em `/api/v1`. A prioridade é que o registro de hábitos seja exato e
 recuperável; a IA é assistiva e **nunca executa sozinha**.
 
+**Recuperável vale para exclusão e para edição** — por mecanismos diferentes: soft
+delete com `/restore`, e histórico de versões com `/revisions/:id/restore`. Edição
+ficou de fora até a migração `historico_de_edicao`, e a assimetria só foi percebida
+quando as primitivas do MCP a tornaram alcançável por composição.
+
 Regra nova, invariante ou comando entra **neste arquivo**, que todo agente lê. O
 `CLAUDE.md` apenas o importa e guarda o que é mecânica exclusiva do Claude Code;
 `scripts/check-agent-docs.sh` verifica isso, como qualquer outra regra daqui.
@@ -56,7 +61,7 @@ A fronteira é a mesma em toda a camada: **a IA sugere, o código valida, a deci
 | **INV-14** | Numeral que não está no cálculo **reprova** a redação | `insights/narration.guard.ts` |
 | **INV-15** | Sem `ANTHROPIC_API_KEY` a API segue íntegra; `source` declara quem redigiu | `insights/narrator.ts` |
 | **INV-16** | Chave, prompt integral e raciocínio do modelo nunca vão para resposta nem log | `insights/narrator.anthropic.ts` |
-| **INV-17** | Tools MCP são somente leitura; escrever **não** é tool | `src/mcp/tools.ts` |
+| **INV-17** | Tool **nomeada** é somente leitura; escrita só pela primitiva `request` | `src/mcp/tools.ts` |
 | **INV-18** | A IA nunca executa: reagendamento é proposta **assinada** aplicada só no confirm | `insights/proposal.service.ts` |
 | **INV-19** | Proposta é sugestão, não autorização — o confirm revalida dono, hábito e dias | `insights/proposal.service.ts` |
 
@@ -64,10 +69,57 @@ INV-14 não se resolve com prompt: o guarda extrai os numerais e reprova o que n
 está no relatório, e o que ele **não** prova está declarado em
 `narration.guard.ts`. O MCP é para assistente **externo**. Detalhes em `docs/IA.md`.
 
+### Primitivas do MCP
+
+O assistente **compõe** as chamadas em vez de escolher entre tools prontas: o
+guardião deixa de ser a ausência de método e passa a ser permissão de banco,
+política de linha e allowlist fechada. Por quê e a que custo: `docs/PRIMITIVAS.md`.
+
+| # | Regra | Onde vive |
+|---|---|---|
+| **INV-25** | A superfície anunciada é a declarada, e só **uma** tool escreve | `src/mcp/primitivas.ts` |
+| **INV-26** | Toda rota do Express está classificada: permitida ou negada, com motivo | `src/mcp/request.ts` |
+| **INV-27** | `query` não escreve por **permissão** e não vê dado alheio por **RLS** | `src/mcp/query.ts` |
+| **INV-28** | Escrita do assistente é marcada na origem, e o delete é sempre **lógico** | `src/mcp/origem.ts`, `src/config/soft-delete.ts` |
+| **INV-29** | Toda tabela está classificada: exposta com RLS, ou não exposta com motivo | `src/mcp/tabelas.ts` |
+| **INV-30** | Execução arbitrária tem teto de **frequência** e de **simultaneidade** | `middlewares/rate-limit.middleware.ts` |
+| **INV-31** | Toda edição grava a versão anterior, e restaurar grava também | `repositories/habits.repository.ts` |
+| **INV-32** | O purge exporta e **conta** tudo que o CASCADE destrói | `scripts/purge.ts` |
+| **INV-33** | O servidor de teste da primitiva usa porta **fora** da faixa efêmera | `tests/lib/porta-fixa.ts` |
+
+INV-27 falha **fechada** (sem a variável de sessão, zero linhas) e tem duas barreiras,
+as duas do banco: gramática e permissão. INV-29 é INV-26 aplicada ao banco — tabela nova
+nasce inacessível. INV-31 zerou `ALCANCE_TEM_IRREVERSIVEL`, e por `destructiveHint` ser **derivada**
+dela ninguém teve de mudar as duas. INV-32 vigia a única barreira do purge — uma
+pessoa lendo um resumo — e ela precisa nomear cada tabela que o cascade leva.
+INV-33 fecha um flake: o pool keep-alive do `fetch` guarda socket para porta
+efêmera morta, e o SO recicla essas portas. Fora da faixa, a colisão é impossível.
+Detalhes e ausências declaradas em `docs/PRIMITIVAS.md`.
+
+### Assistente conversacional
+
+O chat do dashboard usa as MESMAS primitivas do MCP, com uma diferença que é o
+desenho: `agir` **não executa** — propõe. No MCP o cliente é o Claude Code, que
+tem confirmação própria; aqui não há, e sem a parada a fronteira dependeria do
+prompt. Detalhes em `docs/ASSISTENTE.md`.
+
+| # | Regra | Onde vive |
+|---|---|---|
+| **INV-34** | Leitura executa; escrita **para** e vira ação pendente que só a pessoa converte | `assistant/assistant.service.ts` |
+| **INV-35** | Toda chamada ao modelo é registrada — tokens, duração, desfecho; **nunca** conteúdo | `prisma/schema.prisma` → `AiCall` |
+| **INV-36** | Teto diário de tokens recusa **antes** de chamar o modelo | `assistant/orcamento.ts` |
+| **INV-37** | Variável que o `env.ts` lê chega ao container, com o **mesmo** default | `docker-compose.yml` |
+
+INV-34 confere a allowlist duas vezes, e a que conta é a da **aprovação**: entre
+propor e aprovar passam minutos, e o que vale é a lista do momento da execução.
+INV-35 é a auditoria que `docs/PRIMITIVAS.md` declarava ausente. As rotas do próprio
+assistente estão **negadas** na allowlist: recursão. INV-37 nasceu de três variáveis
+que chegaram ao `.env` e não ao compose — ver `docs/LICOES.md`.
+
 ### Contrato com os clientes
 
-O outro lado destas quatro vive em `habits-dashboard` e `habits-mobile`; a API é
-quem produz o status que as dispara.
+O outro lado destas cinco vive em `habits-dashboard` e `habits-mobile`; a API é quem
+produz o status que as dispara.
 
 | # | Regra | Onde vive |
 |---|---|---|
@@ -79,9 +131,8 @@ quem produz o status que as dispara.
 
 ## Comandos de validação
 
-Duas camadas, por dependência externa. Rode a maior que o ambiente permitir e
-**declare no relatório final qual não rodou** — silenciar isso é reportar verde
-falso.
+Quatro camadas, por dependência externa. Rode a maior que o ambiente permitir e
+**declare no relatório final qual não rodou** — silenciar isso é reportar verde falso.
 
 **Camada 1 — sem dependência externa.** Mínimo obrigatório de qualquer alteração;
 roda em qualquer sandbox de agente.
@@ -94,10 +145,9 @@ npm run lint              # --max-warnings=0
 npm run test:unit
 ```
 
-Três armadilhas, detalhadas em `docs/DECISOES.md`: `npm run build` passa com erro
-de tipo (`tsup` não typecheca — rode `tsc --noEmit`); `src/mcp/tools.ts` importa de
-`zod/v4` ou o `tsc` estoura o heap; e migração precisa estar rastreada **e**
-atualizada — checagem 8 do gate mais `check:schema-drift`.
+Três armadilhas, em `docs/DECISOES.md`: `build` passa com erro de tipo; `src/mcp/` e
+`src/schemas/` importam de `zod/v4` ou o `tsc` estoura o heap; migração precisa estar
+rastreada **e** atualizada (checagem 8 do gate mais `check:schema-drift`).
 
 **Camada 2 — exige PostgreSQL.** Apaga as três tabelas, então roda em banco
 **separado** (`habits_test`, de `.env.test`); `tests/setup.ts` recusa qualquer nome
@@ -108,6 +158,7 @@ npm run docker:up
 npm run db:test:create && npm run db:test:migrate
 npm run check:schema-drift    # migrações versionadas == schema.prisma?
 npm run test:integration
+npm run test:integration:tz   # a MESMA suíte num fuso 17h deslocado
 ```
 
 **Camada 3 — exige a stack de pé.** Sobe a imagem e bate nela por HTTP. É a única
@@ -130,22 +181,12 @@ já é clone limpo. Ver `docs/DECISOES.md`.
 npm run verify:repro
 ```
 
-`npm run verify` roda a Camada 1 e tenta as outras. O que não puder rodar **avisa
-em vez de falhar** e o script sai com **código 3**, para automação não confundir
-"pulou" com "passou". A Camada 3 não sobe a stack sozinha — leva minutos e
-derrubaria a de quem chamou.
+`npm run verify` roda a Camada 1 e tenta as outras. O que não puder rodar **avisa em
+vez de falhar** e o script sai com **código 3**, para automação não confundir "pulou"
+com "passou". A Camada 3 não sobe a stack sozinha: leva minutos e derrubaria a de
+quem chamou.
 
-### Ferramentas exigidas
-
-| Ferramenta | Versão | Como conferir |
-|---|---|---|
-| Node | **22** (o do CI) | `node --version` |
-| Docker | daemon **em execução**, não só o cliente | `docker info` |
-| `jq` | qualquer | `jq --version` |
-| `git archive` | do próprio git | `git archive --format=tar HEAD \| tar -t \| head -1` |
-
-`docker --version` responde com o daemon desligado. Só `docker info` prova que as
-Camadas 2 e 3 são executáveis.
+Ferramentas e versões exigidas: `docs/FERRAMENTAS.md`.
 
 ## Definição de pronto
 
@@ -153,17 +194,26 @@ Camadas 2 e 3 são executáveis.
 - Invariante nova entra na tabela acima **com** o arquivo onde vive.
 - Toda invariante tem também um teste **adversário**: um que tenta violá-la e
   exige que seja barrada. Teste de caminho feliz não prova fronteira.
-- **O gate local roda o que o CI roda.** A checagem 9 do `check-agent-docs.sh`
-  compara os comandos `npm` do workflow com o `scripts/verify.sh`: o workflow é a
-  fonte, o script é o derivado. Duas listas descrevendo a mesma coisa, sem nada
-  comparando, foi como `npm install` no verify e `npm ci` no CI conviveram — e o
-  CI ficou vermelho sem nenhuma camada local poder ver.
-- **Verificação nova tem caso vizinho.** Depois de escrever um gate, uma trava ou
-  um guarda, construa o caso que ele **deveria** pegar e veja-o pegar — não o caso
-  que motivou escrevê-lo, que já passa por construção. "Toda invariante tem teste
-  adversário" vale para os gates também, e é onde ninguém pensa em aplicar: gate
-  não é código de produção. Nove defeitos desta safra eram verificações que
-  funcionavam no caso de origem e olhavam para a metade errada.
+- **O gate local roda o que o CI roda.** A checagem 9 compara os comandos `npm` do
+  workflow com o `verify.sh` — o workflow é a fonte, o script é o derivado. Duas
+  listas sem nada comparando foi como `npm install` e `npm ci` conviveram.
+- **Verificação nova tem caso vizinho.** Construa o caso que o gate **deveria** pegar
+  e veja-o pegar — não o que o motivou, que já passa por construção. Vale para gates.
+- **Ancore em sumário, nunca em substring de saída livre.** Asserção sobre recusa
+  exige a RAZÃO da recusa; contagem de falha exige `^Tests: +N failed`.
+- **Filtre a exibição, nunca a captura.** `cmd 2>&1 | tee log | grep …`. O
+  `verify.sh` grava tudo em `.verify.log`.
+- **Calibre instrumento novo contra resultado conhecido**, e reproduza no ambiente
+  que vale — o mais permissivo **esconde** defeito.
+- **Asserção sobre EFEITO, nunca sobre chamada.** Vale em dobro para sugestão de
+  revisor não medida.
+
+Os treze defeitos que produziram essas cinco regras, cada um com o que ele fez e como
+foi pego, estão em `docs/LICOES.md`. Aqui ficam as regras; lá fica o porquê.
+
+- **`git commit` em `main`/`master` é recusado por hook.** `npm run hooks:install`
+  instala `scripts/hooks/pre-commit`. Hook não é clonado, então a instalação é passo
+  explícito — e a regra deixa de depender de conferir o branch.
 - O fluxo manual continua funcionando sem `ANTHROPIC_API_KEY`.
 - Nenhum teste aponta para banco fora de `*_test`.
 - O relatório final declara qual camada rodou e qual não rodou, com o motivo.

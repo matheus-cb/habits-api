@@ -1,11 +1,15 @@
 import { clearTimeout, setTimeout } from 'node:timers';
 import { PrismaClient } from '@prisma/client';
+import { softDelete } from './soft-delete';
 import { env } from './env';
 
 const prismaClientSingleton = () => {
   return new PrismaClient({
     log: env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
-  });
+    // A extensão de soft delete é aplicada AQUI, no singleton, e não em cada
+    // repositório. Aplicar por repositório deixaria a décima quarta consulta sem
+    // filtro, que é o defeito que a extensão existe para impedir.
+  }).$extends(softDelete);
 };
 
 declare global {

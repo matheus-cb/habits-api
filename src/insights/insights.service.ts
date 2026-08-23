@@ -100,8 +100,12 @@ export class InsightsService {
     );
   }
 
-  async confirmProposal(userId: string, token: string): Promise<RescheduleResult> {
-    return this.proposals.confirm(userId, token);
+  async confirmProposal(
+    userId: string,
+    token: string,
+    via: 'user' | 'assistant' = 'user'
+  ): Promise<RescheduleResult> {
+    return this.proposals.confirm(userId, token, Date.now(), via);
   }
 
   private async narrate(report: AdherenceReport): Promise<AdherenceNarration> {

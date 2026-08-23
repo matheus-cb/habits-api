@@ -61,3 +61,7 @@ Thumbs.db
 # Claude Code temporary files
 tmpclaude-*
 .claude/
+
+# Captura completa da última execução de `npm run verify`. Existe para o próximo
+# flake ter nome; não é artefato de build e não vai para o repositório.
+.verify.log

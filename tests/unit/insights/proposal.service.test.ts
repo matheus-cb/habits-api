@@ -62,9 +62,16 @@ describe('INV-18 — a IA nunca executa: só o confirm aplica', () => {
     const resultado = await service.confirm(USER_ID, token);
 
     expect(resultado.scheduledDays).toEqual([1, 3]);
-    expect(mockHabitsRepository.update).toHaveBeenCalledWith(HABIT_ID, {
-      scheduledDays: [1, 3],
-    });
+    // O terceiro argumento é a proveniência, e ele é conferido de propósito: o
+    // confirm é o único ponto do sistema em que uma escrita nasce de proposta
+    // REDIGIDA pelo modelo, mesmo com a decisão sendo da pessoa. Gravá-la como
+    // `user` apagaria a única marca de que houve IA no caminho — e como o default
+    // do repositório É `user`, um argumento esquecido não quebraria nada.
+    expect(mockHabitsRepository.update).toHaveBeenCalledWith(
+      HABIT_ID,
+      { scheduledDays: [1, 3] },
+      'user'
+    );
   });
 
   it('INV-18: adversário — token com payload trocado e assinatura antiga é recusado', async () => {
@@ -211,9 +218,11 @@ describe('INV-19 — a proposta é sugestão, não autorização', () => {
 
     await service.confirm(USER_ID, token);
 
-    expect(mockHabitsRepository.update).toHaveBeenCalledWith(HABIT_ID, {
-      scheduledDays: [1, 3, 5],
-    });
+    expect(mockHabitsRepository.update).toHaveBeenCalledWith(
+      HABIT_ID,
+      { scheduledDays: [1, 3, 5] },
+      'user'
+    );
   });
 });
 

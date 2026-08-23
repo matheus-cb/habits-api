@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Recusa commit direto em `main`/`master`.
+#
+# A regra é "trabalhe em branch, não commite no main sem perguntar", e ela é do
+# tipo que se quebra **sem perceber** e não do tipo que se esquece: eu commitei
+# num `main` porque estava com o terminal em outro repositório e não conferi o
+# branch. A regra não falhou de conhecimento, falhou de atenção — exatamente a
+# classe que este projeto vem fechando por estrutura em vez de por lembrança.
+#
+# É o mesmo critério das primitivas do MCP: não depender de alguém lembrar. A
+# diferença é que hook do git **não é clonado**, então este arquivo é versionado e
+# a instalação é um passo explícito:
+#
+#   npm run hooks:install
+#
+# Sem ele o repositório continua funcionando; com ele o erro fica impossível.
+set -euo pipefail
+
+branch="$(git rev-parse --abbrev-ref HEAD)"
+
+case "$branch" in
+main | master)
+  cat >&2 <<MSG
+
+✗ Commit recusado: você está em '$branch'.
+
+A regra do projeto é trabalhar em branch. Para seguir:
+
+  git switch -c feat/<descricao>
+  git commit ...
+
+Se o commit em '$branch' for deliberado e combinado:
+
+  git commit --no-verify ...
+
+MSG
+  exit 1
+  ;;
+esac

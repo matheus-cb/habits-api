@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { z } from 'zod';
+import { z } from 'zod/v4';
 import jwt from 'jsonwebtoken';
 import { Request, Response } from 'express';
 import { createHabitSchema, updateHabitSchema } from '@/schemas/habits.schema';
@@ -9,6 +9,15 @@ import { errorHandler } from '@/middlewares/error.middleware';
 import { AppError, ConflictError, ForbiddenError } from '@/utils/errors';
 import { authConfig } from '@/config/auth';
 import { AuthService } from '@/services/auth.service';
+import {
+  AppError,
+  BadRequestError,
+  ConflictError,
+  ForbiddenError,
+  NotFoundError,
+  TooManyRequestsError,
+  UnauthorizedError,
+} from '@/utils/errors';
 
 const SRC = path.join(__dirname, '..', '..', 'src');
 
@@ -37,12 +46,62 @@ function importaPrisma(conteudo: string): boolean {
   return false;
 }
 
+describe('INV-12 — a hierarquia de erro preserva a identidade da subclasse', () => {
+  it('INV-12: cada erro é instanceof da própria classe E de AppError', () => {
+    // A base fazia `Object.setPrototypeOf(this, AppError.prototype)`, o que
+    // apagava a identidade de toda subclasse: `instanceof NotFoundError` era
+    // `false` e `constructor.name` dizia "AppError" em todo log.
+    //
+    // Nada quebrava, e é isso que torna o defeito difícil: o único `instanceof`
+    // do código é o do middleware, contra `AppError` — exatamente o caso que a
+    // linha errada fazia funcionar. Descobri porque um teste meu tentou
+    // `instanceof TooManyRequestsError`.
+    const casos = [
+      new BadRequestError('x'),
+      new UnauthorizedError('x'),
+      new ForbiddenError('x'),
+      new NotFoundError('x'),
+      new ConflictError('x'),
+      new TooManyRequestsError('x'),
+    ];
+
+    for (const erro of casos) {
+      expect(erro).toBeInstanceOf(AppError);
+      expect(erro).toBeInstanceOf(erro.constructor as new () => AppError);
+      expect(erro.constructor.name).not.toBe('AppError');
+    }
+  });
+
+  it('INV-12: adversário — o statusCode de cada classe é o dela', () => {
+    // O caso vizinho: um protótipo certo com status errado passaria no de cima.
+    expect(new BadRequestError('x').statusCode).toBe(400);
+    expect(new UnauthorizedError('x').statusCode).toBe(401);
+    expect(new ForbiddenError('x').statusCode).toBe(403);
+    expect(new NotFoundError('x').statusCode).toBe(404);
+    expect(new ConflictError('x').statusCode).toBe(409);
+    expect(new TooManyRequestsError('x').statusCode).toBe(429);
+  });
+});
+
 describe('INV-02 — repositório é a única porta do banco', () => {
   it('INV-02: nenhum arquivo fora de src/repositories e src/config importa o Prisma', () => {
     // Esta é a invariante que se viola sem quebrar nada: um `import { prisma }`
     // dentro de um service funciona perfeitamente e destrói a camada. Só um
     // teste estático a pega.
-    const permitidos = [path.join(SRC, 'repositories'), path.join(SRC, 'config')];
+    const permitidos = [
+      path.join(SRC, 'repositories'),
+      path.join(SRC, 'config'),
+      // A exceção declarada, e a única. `mcp/query.ts` constrói um PrismaClient
+      // PRÓPRIO na role somente-leitura, e é justamente por não passar pelos
+      // repositórios que ele é seguro: os repositórios usam o client do dono das
+      // tabelas, que tem escrita e contorna RLS. Reescrever esta primitiva como
+      // repositório derrubaria as duas garantias dela de uma vez.
+      //
+      // Exceção sem propriedade conferida é whitelist, e whitelist apodrece. O
+      // caso seguinte é o que impede esta virar uma: ele exige que o arquivo
+      // continue lendo só de `DATABASE_URL_READONLY`.
+      path.join(SRC, 'mcp', 'query.ts'),
+    ];
 
     const infratores = arquivosTs(SRC)
       .filter((arquivo) => !permitidos.some((dir) => arquivo.startsWith(dir)))
@@ -50,6 +109,21 @@ describe('INV-02 — repositório é a única porta do banco', () => {
       .map((arquivo) => path.relative(SRC, arquivo));
 
     expect(infratores).toEqual([]);
+  });
+
+  it('INV-02: a exceção do mcp/query.ts nunca alcança o client da aplicação', () => {
+    // O que torna a exceção aceitável: privilégio menor. Se este arquivo passar a
+    // ler `env.DATABASE_URL`, ou a importar o client da aplicação, ele ganha
+    // escrita e passa a contornar RLS — e as duas garantias da primitiva `query`
+    // caem juntas, sem nenhum teste de comportamento notar, porque toda consulta
+    // continuaria funcionando. Só um caso estático pega isso.
+    const fonte = fs.readFileSync(path.join(SRC, 'mcp', 'query.ts'), 'utf8');
+
+    expect(fonte).toMatch(/DATABASE_URL_READONLY/);
+    expect(fonte).not.toMatch(/from\s+'@\/config\/database'/);
+    // `DATABASE_URL` sem o sufixo: a URL do dono das tabelas.
+    expect(fonte).not.toMatch(/DATABASE_URL(?!_READONLY)/);
+    expect(fonte).not.toMatch(/from\s+'@\/repositories\//);
   });
 
   it('INV-02: adversário — o próprio detector pega os imports que a invariante proíbe', () => {

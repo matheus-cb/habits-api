@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v4';
 
 /**
  * O token é opaco por fora: `payload.assinatura`, ambos base64url. O schema

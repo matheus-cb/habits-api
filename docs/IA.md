@@ -11,7 +11,7 @@ falha. Para o que a camada faz, ver os três endpoints abaixo.
 
 | Peça | Onde | O que a IA faz | O que a IA **não** faz |
 |---|---|---|---|
-| Servidor MCP | `POST /mcp` | nada — é um servidor, não um cliente | escrever: não existe tool de escrita |
+| Servidor MCP | `POST /mcp` | nada — é um servidor, não um cliente | decidir: escrita só pela primitiva `request`, e o cliente confirma |
 | Resumo de aderência | `GET /api/v1/insights/adherence` | redige o texto | calcular qualquer número |
 | Proposta de reagendamento | `GET`/`POST .../insights/reschedule-proposals` | redige a justificativa | escolher os dias, ou aplicá-los |
 
@@ -23,12 +23,20 @@ cliente do próprio MCP, passaria a chamar a si mesma pelo protocolo, que é
 exatamente a armadilha que o AGENTS.md daquele projeto registra.
 
 Então o MCP daqui existe para um assistente **externo** (Claude Desktop, Claude
-Code) ler hábitos e estatísticas. Cinco tools, todas de leitura:
-`list_habits`, `get_habit`, `get_habit_stats`, `list_checkins`,
-`get_adherence_report`.
+Code). A superfície tem duas metades, e elas têm garantias diferentes.
 
-Três camadas impedem escrita, e a ordem importa — da mais forte para a mais
-fraca:
+**Cinco tools nomeadas, todas de leitura:** `list_habits`, `get_habit`,
+`get_habit_stats`, `list_checkins`, `get_adherence_report`.
+
+**Duas primitivas compostas pelo cliente:** `query` e `request`. Elas mudam o
+desenho — a escrita passa a existir — e por isso têm documento próprio:
+`docs/PRIMITIVAS.md`, que é onde a troca está declarada sem enfeite. O resumo
+honesto: o guardião deixa de ser a ausência de método e passa a ser permissão de
+banco, política de linha e allowlist fechada, e a irreversibilidade deixa de ser
+"não há escrita" e passa a ser soft delete com delete físico fora do HTTP.
+
+Três camadas impedem escrita **pelas tools nomeadas**, e a ordem importa — da
+mais forte para a mais fraca:
 
 1. **O tipo.** As tools recebem `ReadOnlyHabitsGateway`, que não tem método de
    escrita. Não há o que chamar.
@@ -40,6 +48,12 @@ fraca:
 A anotação declara a intenção; o tipo é o que a torna inalcançável. Se a defesa
 fosse só "as tools registradas não escrevem", ela dependeria de quem escrevesse
 a próxima tool lembrar disso.
+
+A fronteira que vale para as duas metades é a mesma, e é a única que não se
+negocia: **a IA sugere, o código valida, a decisão é do usuário.** A primitiva
+`request` escreve, e é por isso que ela anuncia `destructiveHint: true` mesmo
+quando a chamada é um `GET` — a anotação é por tool, e tem de descrever a pior
+chamada que aquela tool pode fazer, não a média.
 
 O `userId` vem do JWT e fica **fechado por closure** no registro da tool.
 Nenhuma tool aceita `userId` como argumento — se aceitasse, um assistente

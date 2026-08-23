@@ -82,6 +82,10 @@ jobs:
           DATABASE_URL_SHADOW: postgresql://postgres:postgres@localhost:5432/habits_shadow?schema=public
         run: ./scripts/check-schema-drift.sh
       - run: npm run test:integration
+      # A mesma suíte num fuso 17h à frente do de desenvolvimento. O servidor
+      # resolve o dia em UTC (INV-04) e testes com data relativa poderiam herdar a
+      # convenção local que o servidor abandonou. Ver o comentário no verify.sh.
+      - run: npm run test:integration:tz
 
   build:
     runs-on: ubuntu-latest

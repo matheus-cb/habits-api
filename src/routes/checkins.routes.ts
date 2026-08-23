@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { z } from 'zod';
+import { z } from 'zod/v4';
 import { CheckinsController } from '@/controllers/checkins.controller';
 import { validateBody, validateParams, validateQuery } from '@/middlewares/validation.middleware';
 import { authenticate } from '@/middlewares/auth.middleware';
@@ -133,6 +133,29 @@ router.delete(
   '/habits/:habitId/checkins/:id',
   validateParams(checkinParamSchema),
   checkinsController.delete
+);
+
+/**
+ * @swagger
+ * /habits/{habitId}/checkins/{id}/restore:
+ *   post:
+ *     summary: Refaz um check-in desfeito
+ *     description: >
+ *       Desfazer é soft delete, então é reversível. Responde 409 se já existir
+ *       outro check-in ativo no mesmo dia — mesma regra do INV-01.
+ *     tags: [Checkins]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Restaurado
+ *       409:
+ *         description: Já existe check-in ativo nesse dia, ou este não está desfeito
+ */
+router.post(
+  '/habits/:habitId/checkins/:id/restore',
+  validateParams(checkinParamSchema),
+  checkinsController.restore
 );
 
 export default router;

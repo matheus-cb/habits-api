@@ -333,9 +333,9 @@ resposta=$(requisitar "${auth_a[@]}" "$API/habits/$habito")
 conferir_igual "INV-18: nenhuma tentativa recusada alterou o agendamento" \
   '[1,3,5]' "$(jq -c '.data.scheduledDays' <<<"$(corpo_de "$resposta")")" "$(corpo_de "$resposta")"
 
-# ── 10. MCP somente leitura, pelo transporte de verdade ─────────────────────────
+# ── 10. MCP: tools de leitura e as duas primitivas, pelo transporte de verdade ──
 echo ""
-echo "10. INV-17 — servidor MCP somente leitura"
+echo "10. INV-17/INV-25 — superfície MCP"
 
 mcp=(-H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream')
 
@@ -353,12 +353,129 @@ corpo=$(corpo_de "$resposta")
 conferir_status "tools/list responde 200 com token" 200 "$(status_de "$resposta")" "$corpo"
 
 nomes=$(jq -r '[.result.tools[].name] | sort | join(",")' <<<"$corpo" 2>/dev/null)
-conferir_igual "INV-17: as tools anunciadas são exatamente as cinco de leitura" \
-  'get_adherence_report,get_habit,get_habit_stats,list_checkins,list_habits' \
+conferir_igual "INV-25: a superfície anunciada é a declarada" \
+  'get_adherence_report,get_habit,get_habit_stats,list_checkins,list_habits,query,request' \
   "$nomes" "$corpo"
 
-somente_leitura=$(jq -r '[.result.tools[] | select(.annotations.readOnlyHint != true)] | length' <<<"$corpo" 2>/dev/null)
-conferir_igual "INV-17: toda tool anuncia readOnlyHint" 0 "$somente_leitura" "$corpo"
+# A propriedade que a mudança de desenho torna crítica: exatamente UMA escreve.
+# Enquanto tudo era leitura isto era grátis; agora é a fronteira do desenho, e é a
+# anotação por onde o cliente decide se pede confirmação.
+escrevem=$(jq -r '[.result.tools[] | select(.annotations.readOnlyHint != true) | .name] | join(",")' <<<"$corpo" 2>/dev/null)
+conferir_igual "INV-25: só \`request\` não se declara somente leitura" 'request' "$escrevem" "$corpo"
+
+# ── 10b. As primitivas na imagem, não só na suíte ───────────────────────────────
+# A Camada 2 prova o comportamento com a aplicação carregada em processo. Esta
+# prova que o CONTAINER tem a role somente-leitura configurada e o RLS aplicado —
+# `DATABASE_URL_READONLY` ausente na imagem faz `query` simplesmente não existir,
+# e nenhuma outra camada veria isso.
+resposta=$(requisitar "${auth_a[@]}" "${mcp[@]}" -X POST \
+  -d '{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT count(*)::int AS n FROM users"}}}' \
+  "$BASE/mcp")
+corpo=$(corpo_de "$resposta")
+linhas=$(jq -r '.result.content[0].text | fromjson | .linhas[0].n' <<<"$corpo" 2>/dev/null)
+conferir_igual "INV-27: SELECT em users pela primitiva devolve UMA linha, a de quem chamou" \
+  1 "$linhas" "$corpo"
+
+# Escrita pela primitiva é recusada pela GRAMÁTICA do Postgres: o envelope
+# `SELECT * FROM (…) AS sub` faz o parser dele rejeitar UPDATE, e também CTE que
+# escreve ("must be at the top level"). A barreira de PERMISSÃO continua atrás
+# dela, e é a Camada 2 que a exercita sem o envelope — aqui ela é invisível.
+# A asserção anterior grepava 'permission denied' e passou a falhar quando o
+# envelope entrou: o modo de falha mudou, e a asserção descrevia o antigo.
+resposta=$(requisitar "${auth_a[@]}" "${mcp[@]}" -X POST \
+  -d '{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"query","arguments":{"sql":"UPDATE habits SET title = '"'"'invadido'"'"'"}}}' \
+  "$BASE/mcp")
+corpo=$(corpo_de "$resposta")
+if grep -q 'A consulta falhou' <<<"$corpo"; then
+  ok "INV-27: UPDATE pela primitiva e recusado pelo banco na imagem"
+else
+  falhar "INV-27: UPDATE pela primitiva e recusado pelo banco na imagem" "$corpo"
+fi
+
+# E nenhuma linha mudou: a tentativa nao escreveu.
+resposta=$(requisitar "${auth_a[@]}" "${mcp[@]}" -X POST \
+  -d '{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT count(*)::int AS n FROM habits WHERE title = '"'"'invadido'"'"'"}}}' \
+  "$BASE/mcp")
+corpo=$(corpo_de "$resposta")
+invadidos=$(jq -r '.result.content[0].text | fromjson | .linhas[0].n' <<<"$corpo" 2>/dev/null)
+conferir_igual "INV-27: nenhuma linha foi alterada pela tentativa" 0 "$invadidos" "$corpo"
+
+resposta=$(requisitar "${auth_a[@]}" "${mcp[@]}" -X POST \
+  -d '{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"request","arguments":{"metodo":"PUT","path":"/api/v1/auth/profile","corpo":{"email":"x@y.z"}}}}' \
+  "$BASE/mcp")
+corpo=$(corpo_de "$resposta")
+# `isError` sozinho NÃO serve aqui: contra a imagem antiga, sem as primitivas, a
+# resposta era `Tool request not found` — também `isError`, e a asserção passava
+# provando o oposto do que dizia. A mensagem tem de vir da allowlist.
+if grep -q 'não está no alcance do assistente' <<<"$corpo"; then
+  ok "INV-26: rota fora da allowlist é recusada pela primitiva na imagem"
+else
+  falhar "INV-26: rota fora da allowlist é recusada pela primitiva na imagem" "$corpo"
+fi
+
+# `request` alcançando a própria API pelo loopback só funciona se o endereço
+# OBSERVADO estiver registrado. Um `registrarEnderecoLocal` que não fosse chamado
+# em `server.ts` daria 401 aqui, e em nenhum outro lugar.
+resposta=$(requisitar "${auth_a[@]}" "${mcp[@]}" -X POST \
+  -d '{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"request","arguments":{"metodo":"GET","path":"/api/v1/habits"}}}' \
+  "$BASE/mcp")
+corpo=$(corpo_de "$resposta")
+status_interno=$(jq -r '.result.content[0].text | fromjson | .status' <<<"$corpo" 2>/dev/null)
+conferir_igual "INV-25: a primitiva alcança a própria API pelo endereço observado" \
+  200 "$status_interno" "$corpo"
+
+resposta=$(requisitar "${auth_a[@]}" "${mcp[@]}" -X POST \
+  -d '{"jsonrpc":"2.0","id":14,"method":"resources/list","params":{}}' "$BASE/mcp")
+corpo=$(corpo_de "$resposta")
+uris=$(jq -r '[.result.resources[].uri] | sort | join(",")' <<<"$corpo" 2>/dev/null)
+conferir_igual "INV-25: os quatro recursos de descoberta são anunciados" \
+  'habits://contratos,habits://openapi,habits://rotas,habits://schema' "$uris" "$corpo"
+
+# ── 10d. INV-31: histórico de edição na imagem ──────────────────────────────────
+#
+# A Camada 2 prova o comportamento com a aplicação em processo. Esta prova que a
+# migração `historico_de_edicao` rodou no CONTAINER — o `migrate deploy` do
+# entrypoint é o único lugar onde isso pode falhar, e o sintoma seria 500 na rota
+# de revisões, que nenhuma camada abaixo veria.
+echo ""
+echo "10d. INV-31 — histórico de edição"
+
+resposta=$(requisitar "${auth_a[@]}" -X PUT -H 'Content-Type: application/json' \
+  -d '{"title":"Titulo editado pelo smoke"}' "$API/habits/$habito")
+conferir_status "PUT /habits/:id edita" 200 "$(status_de "$resposta")" "$(corpo_de "$resposta")"
+
+resposta=$(requisitar "${auth_a[@]}" "$API/habits/$habito/revisions")
+corpo=$(corpo_de "$resposta")
+conferir_status "GET /habits/:id/revisions responde 200" 200 "$(status_de "$resposta")" "$corpo"
+
+quantas=$(jq -r '.data | length' <<<"$corpo" 2>/dev/null)
+conferir_igual "INV-31: a edição deixou UMA versão anterior" 1 "$quantas" "$corpo"
+
+revisao=$(jq -r '.data[0].id' <<<"$corpo" 2>/dev/null)
+titulo_antigo=$(jq -r '.data[0].title' <<<"$corpo" 2>/dev/null)
+
+resposta=$(requisitar "${auth_a[@]}" -X POST "$API/habits/$habito/revisions/$revisao/restore")
+corpo=$(corpo_de "$resposta")
+conferir_status "POST .../revisions/:id/restore responde 200" 200 "$(status_de "$resposta")" "$corpo"
+conferir_igual "INV-31: restaurar devolveu o título anterior" \
+  "$titulo_antigo" "$(jq -r '.data.title' <<<"$corpo" 2>/dev/null)" "$corpo"
+
+# E restaurar gravou revisão TAMBÉM: sem isso, desfazer destruiria o estado de
+# onde se desfez, e a segunda volta não teria para onde ir.
+resposta=$(requisitar "${auth_a[@]}" "$API/habits/$habito/revisions")
+corpo=$(corpo_de "$resposta")
+conferir_igual "INV-31: restaurar também gravou versão (agora são duas)" \
+  2 "$(jq -r '.data | length' <<<"$corpo" 2>/dev/null)" "$corpo"
+
+# A anotação derivada, contra o endpoint real: era `true` enquanto PUT e o confirm
+# sobrescreviam sem histórico, e virou `false` sem ninguém editar `primitivas.ts`.
+resposta=$(requisitar "${auth_a[@]}" "${mcp[@]}" -X POST \
+  -d '{"jsonrpc":"2.0","id":15,"method":"tools/list","params":{}}' "$BASE/mcp")
+corpo=$(corpo_de "$resposta")
+hint=$(jq -r '.result.tools[] | select(.name=="request") | .annotations.destructiveHint' <<<"$corpo" 2>/dev/null)
+conferir_igual "INV-31: destructiveHint da tool request é false na imagem" false "$hint" "$corpo"
+
+
 
 # Chamar uma tool de escrita que não existe: erro, nunca sucesso silencioso.
 resposta=$(requisitar "${auth_a[@]}" "${mcp[@]}" -X POST \
@@ -379,6 +496,30 @@ conferir_igual "INV-17: a tentativa pelo MCP não criou check-in" \
 resposta=$(requisitar "${auth_a[@]}" -X GET "$BASE/mcp")
 conferir_status "GET /mcp responde 405 (o transporte não tem sessão)" \
   405 "$(status_de "$resposta")" "$(corpo_de "$resposta")"
+
+# ── 10c. INV-30: o teto de frequência está MONTADO ──────────────────────────────
+#
+# Os unitários provam a lógica do middleware. Nenhum deles pode ver se ele está
+# montado em `/mcp` — um `app.use` esquecido deixaria a suíte inteira verde com a
+# primitiva de execução arbitrária sem teto nenhum. Só bater na imagem prova.
+#
+# Este bloco fica no FIM da seção de propósito: ele esgota o teto por usuário, e
+# qualquer chamada MCP depois dele receberia 429 por consequência deste teste em
+# vez de por defeito.
+echo ""
+echo "10c. INV-30 — teto de frequência do MCP"
+
+visto_429=0
+for _ in $(seq 1 70); do
+  codigo=$(status_de "$(requisitar "${auth_a[@]}" "${mcp[@]}" -X POST \
+    -d '{"jsonrpc":"2.0","id":99,"method":"tools/list","params":{}}' "$BASE/mcp")")
+  if [ "$codigo" = "429" ]; then
+    visto_429=1
+    break
+  fi
+done
+conferir_igual "INV-30: um laço em /mcp recebe 429 antes de 70 chamadas" 1 "$visto_429" \
+  'nenhuma das 70 chamadas foi limitada — o middleware está montado?'
 
 # ── Resultado ───────────────────────────────────────────────────────────────────
 echo ""

@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from 'zod/v4';
 
 /**
  * Dias da semana em que o hábito é cobrado: 0 = domingo … 6 = sábado, a mesma
@@ -36,3 +36,17 @@ export const habitIdSchema = z.object({
 
 export type CreateHabitInput = z.infer<typeof createHabitSchema>;
 export type UpdateHabitInput = z.infer<typeof updateHabitSchema>;
+
+/**
+ * Params de uma revisão. Dois uuids, e os DOIS são validados.
+ *
+ * Validar só o `revisionId` deixaria `habitId` chegar cru ao service — que o usa
+ * para conferir posse. A posse é conferida sobre um valor que o schema não olhou
+ * seria a forma mais discreta de INV-03 depender de sorte.
+ */
+export const revisionParamsSchema = z.object({
+  id: z.string().uuid(),
+  revisionId: z.string().uuid(),
+});
+
+export type RevisionParams = z.infer<typeof revisionParamsSchema>;
