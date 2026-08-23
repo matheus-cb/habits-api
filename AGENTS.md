@@ -60,8 +60,9 @@ A fronteira é a mesma em toda a camada: **a IA sugere, o código valida, a deci
 | **INV-18** | A IA nunca executa: reagendamento é proposta **assinada** aplicada só no confirm | `insights/proposal.service.ts` |
 | **INV-19** | Proposta é sugestão, não autorização — o confirm revalida dono, hábito e dias | `insights/proposal.service.ts` |
 
-INV-14 não se resolve com prompt — o guarda extrai os numerais e reprova o que não está
-no relatório; o que ele **não** prova está em `narration.guard.ts`. Ver `docs/IA.md`.
+INV-14 não se resolve com prompt: o guarda extrai os numerais e reprova o que não
+está no relatório, e o que ele **não** prova está declarado em
+`narration.guard.ts`. O MCP é para assistente **externo**. Detalhes em `docs/IA.md`.
 
 ### Primitivas do MCP
 
@@ -75,10 +76,12 @@ política de linha e allowlist fechada. Por quê e a que custo: `docs/PRIMITIVAS
 | **INV-26** | Toda rota do Express está classificada: permitida ou negada, com motivo | `src/mcp/request.ts` |
 | **INV-27** | `query` não escreve por **permissão** e não vê dado alheio por **RLS** | `src/mcp/query.ts` |
 | **INV-28** | Escrita do assistente é marcada na origem, e o delete é sempre **lógico** | `src/mcp/origem.ts`, `src/config/soft-delete.ts` |
+| **INV-29** | Toda tabela está classificada: exposta com RLS, ou não exposta com motivo | `src/mcp/tabelas.ts` |
+| **INV-30** | Execução arbitrária tem teto de **frequência** e de **simultaneidade** | `middlewares/rate-limit.middleware.ts` |
 
-INV-27 falha **fechada**: sem a variável de sessão a política devolve zero linhas, não
-tudo. INV-28 nunca sub-registra e às vezes sobre-registra — a assimetria que a torna
-aceitável está em `origem.ts`.
+INV-27 falha **fechada** (sem a variável de sessão, zero linhas) e tem duas barreiras,
+as duas do banco: gramática e permissão. INV-29 é INV-26 aplicada ao banco — tabela nova
+nasce inacessível. Detalhes e ausências declaradas em `docs/PRIMITIVAS.md`.
 
 ### Contrato com os clientes
 
@@ -137,7 +140,8 @@ O smoke vive em `scripts/smoke.sh`, não no workflow: **uma cópia**, rodável n
 dois lugares. Embutir no YAML garante duas versões divergindo em silêncio.
 
 **Camada 3.5 — o repositório reproduz?** As outras testam o código; esta testa o
-**repositório**, via `git archive HEAD` — fora do CI, onde todo checkout já é limpo.
+**repositório**, via `git archive HEAD`. Fora do CI de propósito: lá todo checkout
+já é clone limpo. Ver `docs/DECISOES.md`.
 
 ```bash
 npm run verify:repro
@@ -159,12 +163,14 @@ Ferramentas e versões exigidas: `docs/FERRAMENTAS.md`.
 - **O gate local roda o que o CI roda.** A checagem 9 compara os comandos `npm` do
   workflow com o `verify.sh` — o workflow é a fonte, o script é o derivado. Duas
   listas sem nada comparando foi como `npm install` e `npm ci` conviveram.
-- **Verificação nova tem caso vizinho.** Depois de escrever um gate, uma trava ou
-  um guarda, construa o caso que ele **deveria** pegar e veja-o pegar — não o caso
-  que motivou escrevê-lo, que já passa por construção. "Toda invariante tem teste
-  adversário" vale para os gates também, e é onde ninguém pensa em aplicar: gate
-  não é código de produção. Nove defeitos desta safra eram verificações que
-  funcionavam no caso de origem e olhavam para a metade errada.
+- **Verificação nova tem caso vizinho.** Depois de escrever um gate, uma trava ou um
+  guarda, construa o caso que ele **deveria** pegar e veja-o pegar — não o caso que o
+  motivou, que já passa por construção. Vale para os gates, e é onde ninguém pensa em
+  aplicar. Onze defeitos desta safra olhavam para a metade errada.
+- **Asserção sobre recusa exige a RAZÃO da recusa.** `isError`, "lançou" ou "não é 200"
+  são satisfeitos pela ausência do que se queria testar: uma asserção sobre allowlist
+  passou verde recebendo `Tool request not found`. Verificação que falha por ausência é
+  pior que nenhuma — produz evidência positiva.
 - O fluxo manual continua funcionando sem `ANTHROPIC_API_KEY`.
 - Nenhum teste aponta para banco fora de `*_test`.
 - O relatório final declara qual camada rodou e qual não rodou, com o motivo.

@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { env } from '@/config/env';
+import { logger } from '@/utils/logger';
 import { BadRequestError } from '@/utils/errors';
 
 /**
@@ -33,17 +34,53 @@ import { BadRequestError } from '@/utils/errors';
  * vazaria, e é o que a transação fecha.
  */
 
-/** Teto de linhas. O `statement_timeout` do role cobre tempo; isto cobre volume. */
+/**
+ * Teto de linhas, imposto pelo **banco** e não pelo Node.
+ *
+ * A primeira versão fazia `linhas.slice(0, 500)` depois da consulta, com o
+ * comentário "o `statement_timeout` cobre tempo; isto cobre volume". Ele cobria o
+ * volume DEVOLVIDO ao cliente MCP, não o volume MATERIALIZADO na heap do
+ * processo — o mesmo processo que serve o HTTP. E o caminho não precisa de bug
+ * nem de dado alheio: `SELECT * FROM checkins a, checkins b` são linhas próprias,
+ * permitidas pela política, e mil check-ins produzem um milhão de linhas
+ * legítimas.
+ *
+ * A consulta agora vai envelopada em `SELECT * FROM (…) AS sub LIMIT 501`. Isso é
+ * **composição textual, não análise sintática**: nada aqui inspeciona o que a
+ * consulta faz.
+ *
+ * ## O envelope virou uma segunda barreira, e mudou o modo de falha
+ *
+ * Consequência que eu não previ e que vale registrar em cheio, porque ela altera
+ * o que os testes podem observar: dentro de uma subconsulta, o Postgres recusa
+ * escrita **no parser dele**. `INSERT` cru dá erro de sintaxe, e CTE que escreve
+ * dá `WITH clause containing a data-modifying statement must be at the top level`.
+ * Então uma tentativa de escrita pela primitiva não chega mais a ser recusada por
+ * permissão — ela é recusada antes, pela gramática.
+ *
+ * Isso **não** enfraquece o desenho, e a distinção é fina: o parser é o do
+ * Postgres, não meu. Continuo sem adivinhar gramática. O que existem agora são
+ * duas barreiras independentes, as duas do banco:
+ *
+ *   1. **gramática** — escrita não pode aparecer dentro de subconsulta;
+ *   2. **permissão** — se pudesse, a role não tem grant.
+ *
+ * A segunda deixou de ser observável ATRAVÉS da primitiva, e é por isso que o
+ * teste de INV-27 a exercita direto na conexão somente-leitura, sem o envelope.
+ * Verificar só o caminho de cima diria "a escrita falha" e deixaria de provar
+ * **por quê** — e o dia em que alguém remover o envelope por otimização, é a
+ * permissão que tem de estar de pé.
+ */
 const MAXIMO_DE_LINHAS = 500;
 
 export interface ResultadoDeQuery {
   linhas: unknown[];
-  total: number;
   truncado: boolean;
 }
 
 export interface GatewayDeQuery {
   executar(userId: string, sql: string): Promise<ResultadoDeQuery>;
+  encerrar(): Promise<void>;
 }
 
 /** `null` quando não há conexão somente-leitura configurada. */
@@ -61,7 +98,17 @@ class PostgresQueryGateway implements GatewayDeQuery {
     // aplicação daria a esta primitiva os privilégios de escrita do dono das
     // tabelas — e o dono também contorna RLS, então as duas garantias cairiam de
     // uma vez.
-    this.client = new PrismaClient({ datasources: { db: { url } }, log: ['error'] });
+    //
+    // `connection_limit=2` é o teto de pool, e é o guardião ESTRUTURAL contra a
+    // negação de serviço: N consultas simultâneas passam a esperar na fila deste
+    // pool em vez de abrir N conexões e disputar o Postgres com a aplicação que
+    // atende o dashboard e o mobile. O limite de taxa (`middlewares/rate-limit`)
+    // cobre a frequência; isto cobre a simultaneidade, e nenhum dos dois depende
+    // de quem chama lembrar de nada.
+    this.client = new PrismaClient({
+      datasources: { db: { url: comTetoDePool(url) } },
+      log: ['error'],
+    });
   }
 
   async executar(userId: string, sql: string): Promise<ResultadoDeQuery> {
@@ -83,24 +130,53 @@ class PostgresQueryGateway implements GatewayDeQuery {
       );
     }
 
+    const inicio = process.hrtime.bigint();
+
     try {
-      return await this.client.$transaction(async (tx) => {
+      const resultado = await this.client.$transaction(async (tx) => {
         // `SET LOCAL` com valor interpolado precisa de `set_config`, porque
         // `SET LOCAL` não aceita parâmetro. `set_config(…, true)` é o equivalente
         // com escopo de transação, e aqui o valor VAI parametrizado — o userId
         // vem do JWT, mas parametrizar é grátis e fecha a categoria.
         await tx.$executeRaw`SELECT set_config('app.usuario_atual', ${userId}, true)`;
 
-        const linhas = await tx.$queryRawUnsafe<unknown[]>(consulta);
-        const total = Array.isArray(linhas) ? linhas.length : 0;
+        // `+ 1` para distinguir "exatamente no teto" de "passou do teto": se
+        // voltarem 501 linhas, havia mais. Contar sem o extra faria 500 exatas
+        // serem reportadas como truncadas.
+        const lidas = await tx.$queryRawUnsafe<unknown[]>(
+          `SELECT * FROM (${consulta}) AS sub LIMIT ${MAXIMO_DE_LINHAS + 1}`
+        );
+        const linhas = Array.isArray(lidas) ? lidas : [];
 
         return {
-          linhas: Array.isArray(linhas) ? linhas.slice(0, MAXIMO_DE_LINHAS) : [],
-          total,
-          truncado: total > MAXIMO_DE_LINHAS,
+          linhas: linhas.slice(0, MAXIMO_DE_LINHAS),
+          // Derivado de ter voltado o extra. O campo `total` da versão anterior
+          // reportava "linhas lidas" e era lido como "linhas que existem" —
+          // número honesto com significado errado, o que é pior que nenhum.
+          truncado: linhas.length > MAXIMO_DE_LINHAS,
         };
       });
+
+      // Uma primitiva de execução arbitrária tem de deixar rastro. Sem isto, o
+      // primeiro incidente — uma consulta que pesa no banco, um erro que o
+      // cliente relata sem reproduzir — é indepurável. Não é a auditoria de IA,
+      // que é trabalho seguinte; é o mínimo que torna a ausência dela suportável.
+      logger.info('mcp query', {
+        userId,
+        ms: Number((process.hrtime.bigint() - inicio) / 1_000_000n),
+        linhas: resultado.linhas.length,
+        truncado: resultado.truncado,
+        sql: consulta,
+      });
+
+      return resultado;
     } catch (erro) {
+      logger.warn('mcp query falhou', {
+        userId,
+        ms: Number((process.hrtime.bigint() - inicio) / 1_000_000n),
+        sql: consulta,
+        erro: erro instanceof Error ? mensagemDoBanco(erro.message) : 'desconhecido',
+      });
       // A mensagem do Postgres é devolvida de propósito: quem escreveu a query
       // precisa saber que a coluna não existe ou que a permissão foi negada, ou
       // não consegue corrigir. Ela não carrega dado de outro usuário — RLS
@@ -110,6 +186,27 @@ class PostgresQueryGateway implements GatewayDeQuery {
       );
     }
   }
+
+  /** Fecha o pool próprio. Em produção o processo morre; em teste, sem isto a
+   * conexão fica pendurada e o Jest não encerra. */
+  async encerrar(): Promise<void> {
+    await this.client.$disconnect();
+  }
+}
+
+/**
+ * Acrescenta `connection_limit=2` sem sobrescrever o que já estiver na URL.
+ *
+ * Fixar o valor por concatenação cega duplicaria o parâmetro quando alguém já o
+ * tivesse configurado em produção — e o Postgres aceitaria o último, tornando a
+ * configuração de quem opera silenciosamente ignorada. `URL` normaliza.
+ */
+function comTetoDePool(url: string): string {
+  const alvo = new URL(url);
+  if (!alvo.searchParams.has('connection_limit')) {
+    alvo.searchParams.set('connection_limit', '2');
+  }
+  return alvo.toString();
 }
 
 /**

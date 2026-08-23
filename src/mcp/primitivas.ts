@@ -4,7 +4,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod/v4';
 import { contratosDeEscrita } from './contratos';
 import { GatewayDeQuery } from './query';
-import { GatewayDeRequest, ROTAS_PERMITIDAS } from './request';
+import { ALCANCE_TEM_IRREVERSIVEL, GatewayDeRequest, ROTAS_PERMITIDAS } from './request';
 
 /**
  * As duas primitivas — o conceito central deste MCP, e onde ele se afasta do
@@ -97,9 +97,10 @@ export function registrarPrimitivas(
         'Faz uma chamada à API do Habits em seu nome. Só o path — o host é fixo. As rotas ' +
         'permitidas estão no recurso `habits://rotas`, com o corpo esperado em ' +
         '`habits://openapi`; qualquer outra é recusada com 403 antes de sair daqui. ' +
-        'Escrita é permitida e é sempre reversível: DELETE de hábito e de check-in é LÓGICO e ' +
-        'volta por `/restore`. O apagamento físico não é rota — é um script que só a pessoa ' +
-        'roda. Confirme com ela antes de qualquer chamada que altere estado.',
+        'Apagar é reversível: DELETE de hábito e de check-in é LÓGICO e volta por `/restore`, e ' +
+        'o apagamento físico não é rota. EDITAR não é: `PUT /habits/:id` e o confirm do ' +
+        'reagendamento sobrescrevem sem histórico. Confirme com a pessoa antes de qualquer ' +
+        'chamada que altere estado, e cite a rota e o corpo que você vai mandar.',
       inputSchema: {
         metodo: z.enum(['GET', 'POST', 'PUT', 'DELETE']),
         path: z.string().min(1).describe('Começa com "/api/v1". Sem host.'),
@@ -107,12 +108,9 @@ export function registrarPrimitivas(
       },
       annotations: {
         readOnlyHint: false,
-        // Pessimista de propósito. A anotação é por TOOL, e esta tool cobre de
-        // `GET /habits` a `DELETE /habits/:id`: ela tem de descrever a pior
-        // chamada possível, não a média. Declarar `false` porque o delete é
-        // lógico faria o cliente deixar de pedir confirmação — e a decisão ser
-        // do usuário é a fronteira que este projeto inteiro sustenta.
-        destructiveHint: true,
+        // DERIVADO da allowlist, não escrito à mão. Ver `ALCANCE_TEM_IRREVERSIVEL`
+        // em `request.ts` para o raciocínio e para o que o tornaria `false`.
+        destructiveHint: ALCANCE_TEM_IRREVERSIVEL,
         idempotentHint: false,
         // Fechado: o `baseUrl` é o loopback deste processo, não a internet.
         openWorldHint: false,

@@ -1,6 +1,6 @@
 import { BadRequestError, ForbiddenError } from '@/utils/errors';
 import { enderecoLocal } from './endereco';
-import { CABECALHO_DE_ORIGEM } from './origem';
+import { CABECALHO_DE_ORIGEM, CABECALHO_DE_PROVA, provaDeOrigem } from './origem';
 
 /**
  * Primitiva `request` — qualquer chamada à própria API, composta pelo cliente.
@@ -42,6 +42,19 @@ export interface RotaPermitida {
   motivo: string;
   /** `true` quando a chamada altera estado — o cliente MCP usa para pedir confirmação. */
   escreve: boolean;
+  /**
+   * `true` quando a chamada destrói informação sem caminho de volta.
+   *
+   * Não é o mesmo que `escreve`, e a diferença é o desenho inteiro deste
+   * projeto: `DELETE /habits/:id` escreve e **não** é irreversível, porque apaga
+   * logicamente e existe `/restore`. `PUT /habits/:id` escreve e **é**
+   * irreversível, porque sobrescreve o título anterior e não há histórico.
+   *
+   * É desta coluna que a anotação `destructiveHint` da tool é DERIVADA. No dia
+   * em que edição ganhar histórico, a coluna vira `false` e a anotação acompanha
+   * sozinha — em vez de alguém ter de lembrar de mudar as duas.
+   */
+  irreversivel: boolean;
 }
 
 /**
@@ -61,74 +74,109 @@ export interface RotaPermitida {
  * que permitir ou negar, porque não existe endpoint.
  */
 export const ROTAS_PERMITIDAS: readonly RotaPermitida[] = [
-  { metodo: 'GET', padrao: '/api/v1/habits', motivo: 'lista os hábitos ativos', escreve: false },
-  { metodo: 'GET', padrao: '/api/v1/habits/:id', motivo: 'detalha um hábito', escreve: false },
+  {
+    metodo: 'GET',
+    padrao: '/api/v1/habits',
+    motivo: 'lista os hábitos ativos',
+    escreve: false,
+    irreversivel: false,
+  },
+  {
+    metodo: 'GET',
+    padrao: '/api/v1/habits/:id',
+    motivo: 'detalha um hábito',
+    escreve: false,
+    irreversivel: false,
+  },
   {
     metodo: 'GET',
     padrao: '/api/v1/habits/:habitId/checkins',
     motivo: 'lista check-ins de um hábito',
     escreve: false,
+    irreversivel: false,
   },
   {
     metodo: 'GET',
     padrao: '/api/v1/habits/:habitId/stats',
     motivo: 'estatística determinística do hábito',
     escreve: false,
+    irreversivel: false,
   },
   {
     metodo: 'GET',
     padrao: '/api/v1/insights/adherence',
     motivo: 'relatório de aderência com resumo redigido',
     escreve: false,
+    irreversivel: false,
   },
   {
     metodo: 'GET',
     padrao: '/api/v1/insights/reschedule-proposals',
     motivo: 'propostas de reagendamento assinadas',
     escreve: false,
+    irreversivel: false,
   },
-  { metodo: 'POST', padrao: '/api/v1/habits', motivo: 'cria hábito', escreve: true },
+  {
+    metodo: 'POST',
+    padrao: '/api/v1/habits',
+    motivo: 'cria hábito',
+    escreve: true,
+    irreversivel: false,
+  },
   {
     metodo: 'PUT',
     padrao: '/api/v1/habits/:id',
-    motivo: 'edita título, descrição ou dias',
+    motivo: 'edita título, descrição ou dias — SOBRESCREVE, não há histórico',
     escreve: true,
+    // A única irreversível do alcance, e a razão de a anotação da tool ser
+    // pessimista. O soft delete cobre exclusão; edição não tem equivalente:
+    // o título anterior é perdido. Se algum dia houver histórico de revisão,
+    // isto vira `false` e `destructiveHint` acompanha sozinho.
+    irreversivel: true,
   },
   {
     metodo: 'POST',
     padrao: '/api/v1/habits/:habitId/checkin',
     motivo: 'marca check-in (409 se já existe no dia)',
     escreve: true,
+    irreversivel: false,
   },
   {
     metodo: 'DELETE',
     padrao: '/api/v1/habits/:habitId/checkins/:id',
     motivo: 'desfaz check-in — LÓGICO, reversível por /restore',
     escreve: true,
+    irreversivel: false,
   },
   {
     metodo: 'POST',
     padrao: '/api/v1/habits/:habitId/checkins/:id/restore',
     motivo: 'refaz um check-in desfeito',
     escreve: true,
+    irreversivel: false,
   },
   {
     metodo: 'DELETE',
     padrao: '/api/v1/habits/:id',
     motivo: 'apaga hábito — LÓGICO, reversível por /restore; o físico é npm run purge',
     escreve: true,
+    irreversivel: false,
   },
   {
     metodo: 'POST',
     padrao: '/api/v1/habits/:id/restore',
     motivo: 'restaura hábito apagado logicamente',
     escreve: true,
+    irreversivel: false,
   },
   {
     metodo: 'POST',
     padrao: '/api/v1/insights/reschedule-proposals/confirm',
-    motivo: 'aplica proposta de reagendamento assinada',
+    motivo: 'aplica proposta assinada — sobrescreve scheduledDays, sem histórico',
     escreve: true,
+    // Mesmo caso do PUT: o agendamento anterior não é guardado. INV-18 garante
+    // que a IA não aplica sozinha; não garante que dê para desfazer.
+    irreversivel: true,
   },
 ] as const;
 
@@ -192,6 +240,28 @@ export const ROTAS_NEGADAS: readonly { metodo: string; padrao: string; motivo: s
     motivo: 'já chega pelo recurso habits://openapi, sem gastar uma chamada',
   },
 ];
+
+/**
+ * A anotação `destructiveHint` da tool `request`, DERIVADA da lista.
+ *
+ * O peer argumentou — com razão no princípio — que `destructiveHint` no MCP
+ * significa mudança **irreversível**, não mudança qualquer, e que anunciar `true`
+ * numa tool que também faz `GET` fabrica confirmação em toda chamada. Confirmação
+ * que aparece sempre é confirmação que a pessoa aprende a aprovar sem ler, e num
+ * desenho em que a decisão migrou do servidor para o cliente essa habituação
+ * corrói a única defesa que resta.
+ *
+ * Onde a premissa dele estava incompleta: ele afirmou que **nada** alcançável é
+ * irreversível, porque o delete é lógico. O delete é. `PUT /habits/:id` e o
+ * `confirm` do reagendamento não são — os dois sobrescrevem sem histórico. O soft
+ * delete cobriu exclusão e deixou edição de fora.
+ *
+ * Então a anotação continua `true` hoje, e a diferença é que ela deixou de ser
+ * pessimismo em bloco: é consequência de duas rotas nomeadas. No dia em que
+ * edição ganhar histórico, as duas viram `false` e a anotação vira `false` sem
+ * ninguém tocar nela. É "derivar, não duplicar" aplicado à própria anotação.
+ */
+export const ALCANCE_TEM_IRREVERSIVEL = ROTAS_PERMITIDAS.some((rota) => rota.irreversivel);
 
 export interface RespostaDeRequest {
   status: number;
@@ -273,6 +343,9 @@ export class HttpRequestGateway implements GatewayDeRequest {
         // primitiva — é o que garante que escrita do assistente nunca seja
         // gravada como se fosse da pessoa. Ver `origem.ts`.
         [CABECALHO_DE_ORIGEM]: 'assistant',
+        // A prova de que a marca vem DESTE processo, e não de um cliente que a
+        // digitou. Ver `origem.ts` para por que o segredo é por processo.
+        [CABECALHO_DE_PROVA]: provaDeOrigem(),
         ...(corpoSerializado ? { 'Content-Type': 'application/json' } : {}),
       },
       ...(corpoSerializado ? { body: corpoSerializado } : {}),

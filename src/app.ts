@@ -11,6 +11,7 @@ import { setupSwagger } from './docs/swagger';
 import routes from './routes';
 import { createMcpRouter } from './mcp/server';
 import { errorResponse, successResponse } from './utils/response';
+import { limitarTaxa } from './middlewares/rate-limit.middleware';
 
 const app: Express = express();
 
@@ -60,12 +61,22 @@ app.get('/health', async (_req, res) => {
     : res.status(503).json(errorResponse('unhealthy', JSON.stringify(corpo)));
 });
 
-// API Routes
-app.use('/api/v1', routes);
+// Limite de taxa antes das rotas, e DEPOIS do /health de propósito: monitoração
+// batendo de segundo em segundo não deve consumir o teto de ninguém.
+//
+// Aqui o `authenticate` ainda não rodou, então este teto é POR IP — ele contém
+// enxurrada não autenticada, que teto por usuário não poderia conter. Folgado
+// porque atrás de NAT ele é compartilhado, e porque a primitiva `request` do MCP
+// passa por aqui pelo loopback: um assistente compondo várias chamadas para
+// responder uma pergunta é uso normal.
+app.use('/api/v1', limitarTaxa({ janelaMs: 60_000, maximo: 300, nome: 'a API' }), routes);
 
-// Servidor MCP somente leitura, para assistente externo. Fora de /api/v1 de
-// propósito: não é REST e não versiona junto com a API HTTP.
-app.use('/mcp', createMcpRouter());
+// Servidor MCP, para assistente externo. Fora de /api/v1 de propósito: não é REST
+// e não versiona junto com a API HTTP.
+//
+// Por IP, contra enxurrada sem token. O teto POR USUÁRIO — o que contém o vetor
+// real da primitiva `query` — está dentro do router, depois do `authenticate`.
+app.use('/mcp', limitarTaxa({ janelaMs: 60_000, maximo: 120, nome: 'o MCP' }), createMcpRouter());
 
 // 404 handler
 app.use((_req, res) => {

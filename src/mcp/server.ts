@@ -2,6 +2,7 @@ import { Request, Response, Router } from 'express';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { authenticate } from '@/middlewares/auth.middleware';
+import { limitarTaxa } from '@/middlewares/rate-limit.middleware';
 import { logger } from '@/utils/logger';
 import { swaggerDocument } from '@/docs/swagger';
 import { createHabitsGateway, ReadOnlyHabitsGateway } from './gateway';
@@ -29,9 +30,23 @@ export function createMcpRouter(
     gatewayDeRequest = new HttpRequestGateway(),
   }: { gatewayDeQuery?: GatewayDeQuery | null; gatewayDeRequest?: GatewayDeRequest } = {}
 ): Router {
+  // `criarGatewayDeQuery()` no parâmetro default é avaliado quando ESTA função é
+  // chamada — uma vez, na montagem do app — e não por requisição. A posição é
+  // deliberada: o corpo de `router.post` cria `McpServer`, transporte e
+  // `gatewayFactory()` a cada chamada, e mover o gateway de query para lá
+  // criaria um `PrismaClient` com pool próprio por requisição, esgotando o
+  // Postgres em minutos. Uniformizar isto é a refatoração a não fazer.
   const router = Router();
 
   router.use(authenticate);
+
+  // DEPOIS do `authenticate`, então chaveia por usuário — e é este o teto que
+  // contém o vetor real: `query` executa SQL arbitrário, e um laço fechado
+  // manteria o Postgres ocupado indefinidamente sem nenhum bug. O
+  // `connection_limit=2` do pool da role cobre simultaneidade; isto cobre
+  // frequência. Um assistente trabalhando faz dezenas de chamadas por pergunta,
+  // então 60/min contém laço sem atrapalhar uso.
+  router.use(limitarTaxa({ janelaMs: 60_000, maximo: 60, nome: 'o MCP' }));
 
   router.post('/', async (req: Request, res: Response) => {
     const userId = req.user!.id;

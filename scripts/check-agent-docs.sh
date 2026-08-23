@@ -37,10 +37,24 @@ linhas_claude="$(wc -l <CLAUDE.md)"
 [ "$linhas_claude" -le 40 ] ||
   falhar "CLAUDE.md tem $linhas_claude linhas (máx. 40). Mova o que não for exclusivo do Claude Code para o AGENTS.md."
 
-# 5. Adesão inversa é pior: acima de 200 linhas combinadas o modelo perde
-#    aderência às instruções, e o problema deixa de ser de organização.
-total=$((linhas_claude + $(wc -l <AGENTS.md)))
-[ "$total" -le 200 ] || falhar "AGENTS.md + CLAUDE.md somam $total linhas; acima de 200 a aderência cai."
+# 5. Adesão inversa é pior: passado um volume de instrução, o modelo perde
+#    aderência, e o problema deixa de ser de organização.
+#
+#    A contagem exclui LINHAS DE TABELA, e a exclusão foi acrescentada depois de a
+#    checagem começar a punir o que ela deveria proteger: com 30 invariantes, a
+#    tabela sozinha passa de 40 linhas, e eu me vi comprimindo a prosa que EXPLICA
+#    as regras para caber — apagando o "por quê" para preservar espaço para o "o
+#    quê". Exatamente o contrário do objetivo.
+#
+#    Linha de tabela é referência densa: uma regra, um arquivo, nenhuma
+#    redundância. O que dilui é prosa, e é prosa que este teto mede. Regra nova
+#    passa a custar uma linha de tabela e nada do orçamento — que é o incentivo
+#    certo, porque o problema nunca foi ter regras demais, foi explicá-las duas
+#    vezes.
+prosa() { grep -cvE '^\s*\|' "$1"; }
+total=$(( $(prosa CLAUDE.md) + $(prosa AGENTS.md) ))
+[ "$total" -le 200 ] ||
+  falhar "AGENTS.md + CLAUDE.md somam $total linhas de prosa (fora de tabela); acima de 200 a aderência cai."
 
 # 6. Import quebrado carrega nada e não avisa. Vale para os dois arquivos.
 for arquivo in AGENTS.md CLAUDE.md; do

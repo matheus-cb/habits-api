@@ -9,6 +9,15 @@ import { errorHandler } from '@/middlewares/error.middleware';
 import { AppError, ConflictError, ForbiddenError } from '@/utils/errors';
 import { authConfig } from '@/config/auth';
 import { AuthService } from '@/services/auth.service';
+import {
+  AppError,
+  BadRequestError,
+  ConflictError,
+  ForbiddenError,
+  NotFoundError,
+  TooManyRequestsError,
+  UnauthorizedError,
+} from '@/utils/errors';
 
 const SRC = path.join(__dirname, '..', '..', 'src');
 
@@ -36,6 +45,43 @@ function importaPrisma(conteudo: string): boolean {
   }
   return false;
 }
+
+describe('INV-12 — a hierarquia de erro preserva a identidade da subclasse', () => {
+  it('INV-12: cada erro é instanceof da própria classe E de AppError', () => {
+    // A base fazia `Object.setPrototypeOf(this, AppError.prototype)`, o que
+    // apagava a identidade de toda subclasse: `instanceof NotFoundError` era
+    // `false` e `constructor.name` dizia "AppError" em todo log.
+    //
+    // Nada quebrava, e é isso que torna o defeito difícil: o único `instanceof`
+    // do código é o do middleware, contra `AppError` — exatamente o caso que a
+    // linha errada fazia funcionar. Descobri porque um teste meu tentou
+    // `instanceof TooManyRequestsError`.
+    const casos = [
+      new BadRequestError('x'),
+      new UnauthorizedError('x'),
+      new ForbiddenError('x'),
+      new NotFoundError('x'),
+      new ConflictError('x'),
+      new TooManyRequestsError('x'),
+    ];
+
+    for (const erro of casos) {
+      expect(erro).toBeInstanceOf(AppError);
+      expect(erro).toBeInstanceOf(erro.constructor as new () => AppError);
+      expect(erro.constructor.name).not.toBe('AppError');
+    }
+  });
+
+  it('INV-12: adversário — o statusCode de cada classe é o dela', () => {
+    // O caso vizinho: um protótipo certo com status errado passaria no de cima.
+    expect(new BadRequestError('x').statusCode).toBe(400);
+    expect(new UnauthorizedError('x').statusCode).toBe(401);
+    expect(new ForbiddenError('x').statusCode).toBe(403);
+    expect(new NotFoundError('x').statusCode).toBe(404);
+    expect(new ConflictError('x').statusCode).toBe(409);
+    expect(new TooManyRequestsError('x').statusCode).toBe(429);
+  });
+});
 
 describe('INV-02 — repositório é a única porta do banco', () => {
   it('INV-02: nenhum arquivo fora de src/repositories e src/config importa o Prisma', () => {

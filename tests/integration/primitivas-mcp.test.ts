@@ -5,6 +5,7 @@ import { prisma } from '@/config/database';
 import { criarGatewayDeQuery } from '@/mcp/query';
 import { HttpRequestGateway, ROTAS_PERMITIDAS } from '@/mcp/request';
 import { esquecerEnderecoLocal, registrarEnderecoLocal } from '@/mcp/endereco';
+import { TABELAS_EXPOSTAS, TABELAS_NAO_EXPOSTAS } from '@/mcp/tabelas';
 import { addUtcDays, toDayKey, utcStartOfDay } from '@/utils/helpers';
 
 /**
@@ -43,6 +44,8 @@ beforeAll(async () => {
 
 afterAll(async () => {
   esquecerEnderecoLocal();
+  // O client dedicado da primitiva tem pool próprio: sem isto o Jest não encerra.
+  await gatewayDeQuery?.encerrar();
   await new Promise<void>((resolve) => servidor.close(() => resolve()));
   await prismaCru.$disconnect();
 });
@@ -63,29 +66,49 @@ async function criarHabito(token: string, title: string) {
 }
 
 describe('INV-27 — a escrita pela primitiva query é impossível por PERMISSÃO', () => {
-  it('INV-27: adversário — INSERT falha por permissão, não por validação de sintaxe', async () => {
-    // O ponto do desenho: nada aqui parseia a consulta. Um INSERT chega ao banco
-    // e é recusado pelo role, que não tem grant de escrita. Parsear perderia para
-    // comentário, CTE, `DO` e função.
+  it('INV-27: adversário — escrita pela primitiva é recusada pela GRAMÁTICA do Postgres', async () => {
+    // Barreira 1. O envelope `SELECT * FROM (…) AS sub` faz o Postgres recusar
+    // escrita no parser DELE: `INSERT` cru dá erro de sintaxe, e CTE que escreve
+    // dá "must be at the top level". Nada aqui inspeciona a consulta — a recusa
+    // é do banco, e é por isso que ela não perde para paráfrase.
     const { userId } = await registrar('query-insert@example.com');
 
-    await expect(
-      gatewayDeQuery!.executar(
-        userId,
-        `INSERT INTO habits (id, title, "userId", "createdAt", "updatedAt") VALUES ('x','y','${userId}',now(),now())`
-      )
-    ).rejects.toThrow(/permission denied/i);
+    for (const escrita of [
+      `INSERT INTO habits (id, title, "userId", "createdAt", "updatedAt") VALUES ('x','y','${userId}',now(),now())`,
+      'DELETE FROM checkins',
+      "UPDATE habits SET title = 'invadido'",
+      // A tentativa esperta: CTE que escreve e devolve. Sem o envelope ela
+      // PASSARIA pela gramática, e só a permissão a barraria.
+      `WITH escrita AS (INSERT INTO habits (id, title, "userId", "createdAt", "updatedAt") VALUES ('x','y','${userId}',now(),now()) RETURNING id) SELECT id FROM escrita`,
+    ]) {
+      await expect(gatewayDeQuery!.executar(userId, escrita)).rejects.toThrow(/A consulta falhou/);
+    }
   });
 
-  it('INV-27: adversário — DELETE e UPDATE também falham por permissão', async () => {
-    const { userId } = await registrar('query-delete@example.com');
+  it('INV-27: adversário — e a PERMISSÃO barra a mesma escrita sem o envelope', async () => {
+    // Barreira 2, e o caso que a barreira 1 tornou invisível.
+    //
+    // Com o envelope, escrita falha por sintaxe antes de chegar à permissão. Se o
+    // teste só olhasse o caminho de cima, ele diria "a escrita falha" e deixaria
+    // de provar POR QUÊ — e no dia em que alguém remover o envelope por
+    // otimização, é a permissão que tem de estar de pé. Então este caso usa a
+    // MESMA conexão somente-leitura, sem envelope.
+    const semEnvelope = new PrismaClient({
+      datasources: { db: { url: process.env.DATABASE_URL_READONLY! } },
+    });
 
-    await expect(gatewayDeQuery!.executar(userId, 'DELETE FROM checkins')).rejects.toThrow(
-      /permission denied/i
-    );
-    await expect(
-      gatewayDeQuery!.executar(userId, "UPDATE habits SET title = 'invadido'")
-    ).rejects.toThrow(/permission denied/i);
+    try {
+      for (const escrita of [
+        `INSERT INTO habits (id, title, "userId", "createdAt", "updatedAt") VALUES ('a','b','c',now(),now())`,
+        'DELETE FROM checkins',
+        "UPDATE habits SET title = 'invadido'",
+        `WITH e AS (DELETE FROM checkins RETURNING id) SELECT id FROM e`,
+      ]) {
+        await expect(semEnvelope.$queryRawUnsafe(escrita)).rejects.toThrow(/permission denied/i);
+      }
+    } finally {
+      await semEnvelope.$disconnect();
+    }
   });
 
   it('INV-27: adversário — DDL também falha', async () => {
@@ -573,5 +596,121 @@ describe('INV-28 — a proveniência distingue os dois caminhos', () => {
 
     const checkin = await prismaCru.checkin.findFirst({ where: { habitId } });
     expect(checkin!.createdVia).toBe('assistant');
+  });
+});
+
+describe('INV-29 — toda tabela do banco está classificada', () => {
+  /**
+   * O par de INV-26, aplicado ao banco.
+   *
+   * A primeira migração deu `pg_read_all_data` à role somente-leitura: leitura
+   * global e opt-out, escopo por tabela e opt-in. A tabela que abriria o buraco
+   * já está nomeada em `docs/PRIMITIVAS.md` como trabalho seguinte — o log de
+   * execução da IA, com prompts e custos de todos os usuários. Ela nasceria
+   * legível por inteiro pela primitiva, e nada falharia.
+   *
+   * Estes casos rodam na Camada 2 porque a pergunta é do banco: quem tem grant,
+   * quem tem política. Nenhum arquivo do repositório responde isso.
+   */
+  async function tabelasDoBanco(): Promise<string[]> {
+    const linhas = await prismaCru.$queryRawUnsafe<{ tablename: string }[]>(
+      `SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename`
+    );
+    return linhas.map((l) => l.tablename);
+  }
+
+  it('INV-29: o enumerador acha as tabelas — se não achar, nada abaixo prova nada', async () => {
+    // O caso vizinho do próprio gate, outra vez. Uma consulta que devolvesse
+    // lista vazia deixaria os casos seguintes verdes examinando nada.
+    const tabelas = await tabelasDoBanco();
+
+    expect(tabelas).toEqual(expect.arrayContaining(['users', 'habits', 'checkins']));
+    expect(tabelas.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('INV-29: adversário — nenhuma tabela existe sem estar classificada', async () => {
+    const classificadas = new Set<string>([
+      ...TABELAS_EXPOSTAS,
+      ...TABELAS_NAO_EXPOSTAS.map((t) => t.tabela),
+    ]);
+
+    const orfas = (await tabelasDoBanco()).filter((t) => !classificadas.has(t));
+
+    // A mensagem carrega o nome porque quem quebrar isto precisa saber o que
+    // classificar, e em qual das duas listas.
+    expect(orfas).toEqual([]);
+  });
+
+  it('INV-29: adversário — tabela criada agora reprova o gate, sem estar em lista nenhuma', async () => {
+    // O caso vizinho de verdade: não o que motivou o gate, e sim o que ele
+    // deveria pegar. Sem isto, o caso acima passa por construção — todas as
+    // tabelas de hoje estão nas listas, então ele nunca viu o gate acusar nada.
+    await prismaCru.$executeRawUnsafe('CREATE TABLE "tabela_intrusa" (id text PRIMARY KEY)');
+
+    try {
+      const classificadas = new Set<string>([
+        ...TABELAS_EXPOSTAS,
+        ...TABELAS_NAO_EXPOSTAS.map((t) => t.tabela),
+      ]);
+      const orfas = (await tabelasDoBanco()).filter((t) => !classificadas.has(t));
+
+      expect(orfas).toEqual(['tabela_intrusa']);
+    } finally {
+      await prismaCru.$executeRawUnsafe('DROP TABLE "tabela_intrusa"');
+    }
+  });
+
+  it('INV-29: adversário — tabela nova NÃO nasce legível pela role somente-leitura', async () => {
+    // A propriedade que a migração do grant explícito criou, e a razão de INV-29
+    // existir. Com `pg_read_all_data` este caso falharia: a role veria a tabela
+    // nova inteira, sem política, no instante em que ela fosse criada.
+    await prismaCru.$executeRawUnsafe('CREATE TABLE "tabela_nova" (id text PRIMARY KEY)');
+    await prismaCru.$executeRawUnsafe(`INSERT INTO "tabela_nova" VALUES ('segredo')`);
+
+    try {
+      const a = await registrar('inv29-grant@example.com');
+
+      await expect(
+        gatewayDeQuery!.executar(a.userId, 'SELECT id FROM "tabela_nova"')
+      ).rejects.toThrow(/permission denied/i);
+    } finally {
+      await prismaCru.$executeRawUnsafe('DROP TABLE "tabela_nova"');
+    }
+  });
+
+  it('INV-29: toda tabela exposta tem grant de SELECT E política de RLS', async () => {
+    // Estar na lista não basta: as duas coisas têm de existir no banco. Uma
+    // tabela com grant e sem política seria legível por inteiro; com política e
+    // sem grant, nem consultável — e o sintoma do segundo é `permission denied`
+    // numa consulta legítima, que se lê como bug da consulta.
+    for (const tabela of TABELAS_EXPOSTAS) {
+      const [{ tem_grant }] = await prismaCru.$queryRawUnsafe<{ tem_grant: boolean }[]>(
+        `SELECT has_table_privilege('habits_readonly', 'public.${tabela}', 'SELECT') AS tem_grant`
+      );
+      expect(tem_grant).toBe(true);
+
+      const politicas = await prismaCru.$queryRawUnsafe<{ policyname: string }[]>(
+        `SELECT policyname FROM pg_policies
+          WHERE schemaname = 'public' AND tablename = '${tabela}'
+            AND 'habits_readonly' = ANY(roles)`
+      );
+      expect(politicas.length).toBeGreaterThanOrEqual(1);
+
+      const [{ relrowsecurity }] = await prismaCru.$queryRawUnsafe<
+        { relrowsecurity: boolean }[]
+      >(`SELECT relrowsecurity FROM pg_class WHERE oid = 'public.${tabela}'::regclass`);
+      expect(relrowsecurity).toBe(true);
+    }
+  });
+
+  it('INV-29: adversário — nenhuma tabela NÃO exposta tem grant para a role', async () => {
+    // O outro lado. Uma entrada na lista de não-expostas com grant no banco é
+    // uma mentira documentada, e é pior que a ausência da entrada.
+    for (const { tabela } of TABELAS_NAO_EXPOSTAS) {
+      const [{ tem_grant }] = await prismaCru.$queryRawUnsafe<{ tem_grant: boolean }[]>(
+        `SELECT has_table_privilege('habits_readonly', 'public.${tabela}', 'SELECT') AS tem_grant`
+      );
+      expect(tem_grant).toBe(false);
+    }
   });
 });

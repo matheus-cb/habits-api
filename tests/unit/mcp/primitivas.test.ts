@@ -7,7 +7,12 @@ import { app } from '@/app';
 import { registerReadOnlyTools, TOOLS_SOMENTE_LEITURA } from '@/mcp/tools';
 import { registrarPrimitivas, registrarRecursos, PRIMITIVAS } from '@/mcp/primitivas';
 import { HttpRequestGateway, ROTAS_NEGADAS, ROTAS_PERMITIDAS } from '@/mcp/request';
-import { CABECALHO_DE_ORIGEM, origemDaRequisicao } from '@/mcp/origem';
+import {
+  CABECALHO_DE_ORIGEM,
+  CABECALHO_DE_PROVA,
+  origemDaRequisicao,
+  provaDeOrigem,
+} from '@/mcp/origem';
 import type { GatewayDeQuery } from '@/mcp/query';
 import type { GatewayDeRequest } from '@/mcp/request';
 import type { ReadOnlyHabitsGateway } from '@/mcp/gateway';
@@ -358,15 +363,53 @@ describe('INV-26 — toda rota do Express é classificada', () => {
 });
 
 describe('INV-28 — a proveniência é do servidor, e não pode sub-registrar', () => {
-  it('INV-28: o cabeçalho de origem é lido só quando diz `assistant`', () => {
-    expect(origemDaRequisicao({ headers: { [CABECALHO_DE_ORIGEM]: 'assistant' } })).toBe(
-      'assistant'
-    );
+  it('INV-28: `assistant` exige o cabeçalho E a prova do processo', () => {
+    const marca = { [CABECALHO_DE_ORIGEM]: 'assistant', [CABECALHO_DE_PROVA]: provaDeOrigem() };
+
+    expect(origemDaRequisicao({ headers: marca })).toBe('assistant');
     expect(origemDaRequisicao({ headers: {} })).toBe('user');
     // Qualquer outro valor cai para `user`. O default seguro aqui é "da pessoa":
     // marcar como IA algo que não passou por ela seria inventar auditoria.
-    expect(origemDaRequisicao({ headers: { [CABECALHO_DE_ORIGEM]: 'sim' } })).toBe('user');
-    expect(origemDaRequisicao({ headers: { [CABECALHO_DE_ORIGEM]: 'ASSISTANT' } })).toBe('user');
+    expect(origemDaRequisicao({ headers: { ...marca, [CABECALHO_DE_ORIGEM]: 'sim' } })).toBe('user');
+    expect(origemDaRequisicao({ headers: { ...marca, [CABECALHO_DE_ORIGEM]: 'ASSISTANT' } })).toBe(
+      'user'
+    );
+  });
+
+  it('INV-28: adversário — o cabeçalho SEM a prova é tratado como `user`', () => {
+    // A direção que estava aberta e agora não está: quem tem o token podia
+    // digitar o cabeçalho e atribuir à IA um registro que era dele. A prova é um
+    // segredo de processo — quem chama de fora não tem como conhecê-lo.
+    expect(origemDaRequisicao({ headers: { [CABECALHO_DE_ORIGEM]: 'assistant' } })).toBe('user');
+  });
+
+  it('INV-28: adversário — prova errada, vazia ou de tamanho diferente não passa', () => {
+    // `timingSafeEqual` LANÇA com buffers de tamanhos diferentes, então o
+    // comprimento é conferido antes. Este caso é o que garante que a conferência
+    // devolve `false` em vez de derrubar a requisição com um 500.
+    const casos = ['', 'nao-e-hex', '00', provaDeOrigem().slice(0, -2), provaDeOrigem() + 'ff'];
+
+    for (const prova of casos) {
+      expect(
+        origemDaRequisicao({
+          headers: { [CABECALHO_DE_ORIGEM]: 'assistant', [CABECALHO_DE_PROVA]: prova },
+        })
+      ).toBe('user');
+    }
+  });
+
+  it('INV-28: adversário — a prova de um byte trocado não passa', () => {
+    // O caso vizinho do comprimento: mesmo tamanho, conteúdo diferente. Sem ele,
+    // uma comparação que só olhasse o tamanho passaria os cinco casos acima.
+    const certa = provaDeOrigem();
+    const trocada = (certa[0] === 'a' ? 'b' : 'a') + certa.slice(1);
+
+    expect(trocada).toHaveLength(certa.length);
+    expect(
+      origemDaRequisicao({
+        headers: { [CABECALHO_DE_ORIGEM]: 'assistant', [CABECALHO_DE_PROVA]: trocada },
+      })
+    ).toBe('user');
   });
 
   it('INV-28: adversário — o gateway marca TODA chamada, inclusive as de leitura', async () => {
@@ -400,6 +443,9 @@ describe('INV-28 — a proveniência é do servidor, e não pode sub-registrar',
       expect(chamadas).toHaveLength(2);
       for (const chamada of chamadas) {
         expect(chamada.headers[CABECALHO_DE_ORIGEM]).toBe('assistant');
+        // E a prova junto — sem ela o middleware trataria como `user`, e o
+        // sub-registro que este desenho fecha voltaria a existir.
+        expect(chamada.headers[CABECALHO_DE_PROVA]).toBe(provaDeOrigem());
         expect(chamada.headers.Authorization).toBe(`Bearer ${TOKEN}`);
       }
     } finally {

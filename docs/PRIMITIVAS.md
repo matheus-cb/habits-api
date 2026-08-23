@@ -111,12 +111,35 @@ Nenhum é escrito à mão, e o motivo está no repositório: o `swaggerDocument`
 `paths: {}` e foi servido em `/api-docs` desde sempre como se descrevesse a API.
 Contrato escrito à mão não avisa quando fica errado.
 
+## Duas travas contra negação de serviço, e por que são duas
+
+A primitiva `query` executa SQL arbitrário contra o mesmo Postgres que serve o
+dashboard e o mobile. O `statement_timeout` de 5s da role limita **cada
+consulta** e não limita nada além disso — então:
+
+- **simultaneidade** — `connection_limit=2` no pool da role somente-leitura.
+  Estrutural: consultas simultâneas esperam na fila em vez de abrirem conexão e
+  disputarem o servidor.
+- **frequência** — `middlewares/rate-limit.middleware.ts`, 60 chamadas por minuto
+  por usuário no `/mcp`. Sem isto, uma consulta de cada vez em laço fechado mantém
+  o Postgres ocupado indefinidamente.
+
+Nenhuma das duas cobre a outra, e o teto por frequência é em memória: com
+réplicas, o limite efetivo é `réplicas × teto`. Está dito no arquivo porque é a
+limitação que costuma passar por garantia — isto contém laço acidental e um
+cliente abusivo, e **não** é defesa contra abuso distribuído.
+
 ## O que ainda não existe
 
-- **Limite de taxa.** Um cliente pode chamar `query` em laço. O
-  `statement_timeout` de 5s do role limita cada consulta, não a frequência.
-- **Log de execução da IA.** `createdVia` diz que o assistente escreveu; não diz
-  o que ele consultou nem quando. As duas coisas passam a ser obrigatórias se
-  houver superfície de chat no dashboard.
+- **Log de execução da IA.** `query` registra em log a consulta, a duração e o
+  resultado — o mínimo para o primeiro incidente ser depurável. Isso não é
+  auditoria: não há tabela, não há retenção, e `createdVia` diz que o assistente
+  escreveu sem dizer o que ele consultou. Passa a ser obrigatório se houver
+  superfície de chat no dashboard.
+- **Histórico de edição.** `PUT /habits/:id` e o confirm do reagendamento
+  sobrescrevem sem guardar o valor anterior — são as duas rotas irreversíveis do
+  alcance, e a razão de `destructiveHint` ser `true`. Com histórico, as duas viram
+  reversíveis e a anotação vira `false` sozinha, porque é derivada.
 - **`paths` do OpenAPI.** Dívida declarada. O conserto é derivar da mesma fonte
   que `habits://contratos`.
+- **Teto de taxa distribuído.** Ver acima: hoje é por processo.

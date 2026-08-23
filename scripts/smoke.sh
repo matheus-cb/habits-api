@@ -376,15 +376,29 @@ linhas=$(jq -r '.result.content[0].text | fromjson | .linhas[0].n' <<<"$corpo" 2
 conferir_igual "INV-27: SELECT em users pela primitiva devolve UMA linha, a de quem chamou" \
   1 "$linhas" "$corpo"
 
+# Escrita pela primitiva é recusada pela GRAMÁTICA do Postgres: o envelope
+# `SELECT * FROM (…) AS sub` faz o parser dele rejeitar UPDATE, e também CTE que
+# escreve ("must be at the top level"). A barreira de PERMISSÃO continua atrás
+# dela, e é a Camada 2 que a exercita sem o envelope — aqui ela é invisível.
+# A asserção anterior grepava 'permission denied' e passou a falhar quando o
+# envelope entrou: o modo de falha mudou, e a asserção descrevia o antigo.
 resposta=$(requisitar "${auth_a[@]}" "${mcp[@]}" -X POST \
   -d '{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"query","arguments":{"sql":"UPDATE habits SET title = '"'"'invadido'"'"'"}}}' \
   "$BASE/mcp")
 corpo=$(corpo_de "$resposta")
-if grep -qi 'permission denied' <<<"$corpo"; then
-  ok "INV-27: UPDATE pela primitiva falha por PERMISSÃO do Postgres na imagem"
+if grep -q 'A consulta falhou' <<<"$corpo"; then
+  ok "INV-27: UPDATE pela primitiva e recusado pelo banco na imagem"
 else
-  falhar "INV-27: UPDATE pela primitiva falha por PERMISSÃO do Postgres na imagem" "$corpo"
+  falhar "INV-27: UPDATE pela primitiva e recusado pelo banco na imagem" "$corpo"
 fi
+
+# E nenhuma linha mudou: a tentativa nao escreveu.
+resposta=$(requisitar "${auth_a[@]}" "${mcp[@]}" -X POST \
+  -d '{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"query","arguments":{"sql":"SELECT count(*)::int AS n FROM habits WHERE title = '"'"'invadido'"'"'"}}}' \
+  "$BASE/mcp")
+corpo=$(corpo_de "$resposta")
+invadidos=$(jq -r '.result.content[0].text | fromjson | .linhas[0].n' <<<"$corpo" 2>/dev/null)
+conferir_igual "INV-27: nenhuma linha foi alterada pela tentativa" 0 "$invadidos" "$corpo"
 
 resposta=$(requisitar "${auth_a[@]}" "${mcp[@]}" -X POST \
   -d '{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"request","arguments":{"metodo":"PUT","path":"/api/v1/auth/profile","corpo":{"email":"x@y.z"}}}}' \
@@ -417,6 +431,8 @@ uris=$(jq -r '[.result.resources[].uri] | sort | join(",")' <<<"$corpo" 2>/dev/n
 conferir_igual "INV-25: os quatro recursos de descoberta são anunciados" \
   'habits://contratos,habits://openapi,habits://rotas,habits://schema' "$uris" "$corpo"
 
+
+
 # Chamar uma tool de escrita que não existe: erro, nunca sucesso silencioso.
 resposta=$(requisitar "${auth_a[@]}" "${mcp[@]}" -X POST \
   -d "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"create_checkin\",\"arguments\":{\"habitId\":\"$habito\"}}}" \
@@ -436,6 +452,30 @@ conferir_igual "INV-17: a tentativa pelo MCP não criou check-in" \
 resposta=$(requisitar "${auth_a[@]}" -X GET "$BASE/mcp")
 conferir_status "GET /mcp responde 405 (o transporte não tem sessão)" \
   405 "$(status_de "$resposta")" "$(corpo_de "$resposta")"
+
+# ── 10c. INV-30: o teto de frequência está MONTADO ──────────────────────────────
+#
+# Os unitários provam a lógica do middleware. Nenhum deles pode ver se ele está
+# montado em `/mcp` — um `app.use` esquecido deixaria a suíte inteira verde com a
+# primitiva de execução arbitrária sem teto nenhum. Só bater na imagem prova.
+#
+# Este bloco fica no FIM da seção de propósito: ele esgota o teto por usuário, e
+# qualquer chamada MCP depois dele receberia 429 por consequência deste teste em
+# vez de por defeito.
+echo ""
+echo "10c. INV-30 — teto de frequência do MCP"
+
+visto_429=0
+for _ in $(seq 1 70); do
+  codigo=$(status_de "$(requisitar "${auth_a[@]}" "${mcp[@]}" -X POST \
+    -d '{"jsonrpc":"2.0","id":99,"method":"tools/list","params":{}}' "$BASE/mcp")")
+  if [ "$codigo" = "429" ]; then
+    visto_429=1
+    break
+  fi
+done
+conferir_igual "INV-30: um laço em /mcp recebe 429 antes de 70 chamadas" 1 "$visto_429" \
+  'nenhuma das 70 chamadas foi limitada — o middleware está montado?'
 
 # ── Resultado ───────────────────────────────────────────────────────────────────
 echo ""
