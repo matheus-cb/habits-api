@@ -13,11 +13,30 @@ cd "$repo"
 pulou=""
 falhou=0
 
+# A saída INTEIRA vai para disco, sempre — e o terminal continua vendo tudo.
+#
+# Isto existe por um flake que ficou sem diagnóstico: um teste de integração
+# falhou uma vez, eu tinha rodado o verify com `| grep "Tests:|RESULTADO"` e o
+# filtro descartou o NOME do teste. Nove execuções depois não reproduziu, e a
+# informação não estava mais disponível para ninguém olhar.
+#
+# É uma categoria diferente das outras desta safra: nas outras a evidência
+# existia e a verificação olhava para o lado errado; nesta a evidência foi
+# destruída. E é a mais barata de fechar — a regra é **filtre a exibição, nunca a
+# captura**, e `tee` custa o mesmo que não usar.
+LOG="${VERIFY_LOG:-$repo/.verify.log}"
+: >"$LOG"
+
 passo() {
   echo ""
   echo "▶ $*"
-  if ! "$@"; then
+  {
+    echo ""
+    echo "▶ $*"
+  } >>"$LOG"
+  if ! "$@" 2>&1 | tee -a "$LOG"; then
     echo "✗ falhou: $*" >&2
+    echo "✗ falhou: $*" >>"$LOG"
     falhou=1
   fi
 }

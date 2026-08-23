@@ -181,6 +181,17 @@ Ferramentas e versões exigidas: `docs/FERRAMENTAS.md`.
   são satisfeitos pela ausência do que se queria testar: uma asserção sobre allowlist
   passou verde recebendo `Tool request not found`. Verificação que falha por ausência é
   pior que nenhuma — produz evidência positiva.
+- **Filtre a exibição, nunca a captura.** `cmd 2>&1 | tee log | grep …`, e não
+  `cmd | grep …`. Um flake ficou sem diagnóstico porque o `grep` do turno descartou o
+  NOME do teste que falhou; a evidência não estava mais disponível para ninguém olhar.
+  `scripts/verify.sh` grava tudo em `.verify.log`.
+- **Antes de confiar num instrumento novo, calibre-o contra resultado conhecido.**
+  Quatro defeitos desta safra foram instrumento certo em ambiente errado — `npm install`
+  contra CI que usa `npm ci`, container velho contra código novo, screenshot escalado
+  lido como 1:1. O instrumento funcionava e reportava sobre outra coisa.
+- **`git commit` em `main`/`master` é recusado por hook.** `npm run hooks:install`
+  instala `scripts/hooks/pre-commit`. Hook não é clonado, então a instalação é passo
+  explícito — e a regra deixa de depender de conferir o branch.
 - O fluxo manual continua funcionando sem `ANTHROPIC_API_KEY`.
 - Nenhum teste aponta para banco fora de `*_test`.
 - O relatório final declara qual camada rodou e qual não rodou, com o motivo.

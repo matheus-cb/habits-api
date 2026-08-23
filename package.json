@@ -33,7 +33,8 @@
     "verify:repro": "./scripts/verify-repro.sh",
     "check:schema-drift": "./scripts/check-schema-drift.sh",
     "purge": "tsx scripts/purge.ts",
-    "mcp:config": "tsx scripts/mcp-config.ts"
+    "mcp:config": "tsx scripts/mcp-config.ts",
+    "hooks:install": "./scripts/install-hooks.sh"
   },
   "keywords": [
     "api",

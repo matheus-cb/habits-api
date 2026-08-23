@@ -37,11 +37,28 @@ module.exports = {
     '^@utils/(.*)$': '<rootDir>/src/utils/$1',
   },
   setupFilesAfterEnv: ['<rootDir>/tests/setup.ts'],
-  // O cliente do Prisma mantém o pool aberto depois do último teste e o jest não
-  // encerra sozinho — ficava pendurado sem output nenhum, indistinguível de
-  // suíte lenta. O `$disconnect` no afterAll não basta porque o pool do Prisma
-  // ainda tem handle vivo.
-  forceExit: true,
+  // `forceExit` foi REMOVIDO, e o motivo importa mais que a linha.
+  //
+  // Ele existia porque o pool do Prisma mantinha handle vivo e a suíte ficava
+  // pendurada sem output — indistinguível de suíte lenta. O comentário estava
+  // certo sobre o sintoma e calado sobre o que `forceExit` faz: ele **não fecha o
+  // que não fechou, ele para de esperar**. Um handle vazando continuava vazando, e
+  // o trabalho assíncrono em voo era morto no meio.
+  //
+  // Isso o transformou no encobrimento de uma causa: com ele ligado, "existe
+  // trabalho que ninguém aguarda" deixa de ter sintoma. É a mesma forma do
+  // `.gitignore` que escondia migrações e do `pg_read_all_data` — decisão local
+  // correta que apaga a informação de que há um problema maior.
+  //
+  // Hoje a condição não existe mais: `--detectOpenHandles` sem `forceExit` não
+  // reporta nada e a suíte encerra sozinha em ~13s. Os `$disconnect` explícitos
+  // dos clients dedicados (o cru dos testes e o da primitiva `query`) fecharam o
+  // que faltava.
+  //
+  // Se ela voltar a pendurar: rode
+  //   npx jest --config jest.integration.config.js --runInBand --detectOpenHandles
+  // e feche o handle que aparecer. Não religue esta linha — religá-la devolve o
+  // silêncio, não a correção.
   clearMocks: true,
   resetMocks: true,
   restoreMocks: true,
