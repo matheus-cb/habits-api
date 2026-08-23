@@ -192,9 +192,16 @@ Ferramentas e versões exigidas: `docs/FERRAMENTAS.md`.
   NOME do teste que falhou; a evidência não estava mais disponível para ninguém olhar.
   `scripts/verify.sh` grava tudo em `.verify.log`.
 - **Antes de confiar num instrumento novo, calibre-o contra resultado conhecido.**
-  Quatro defeitos desta safra foram instrumento certo em ambiente errado — `npm install`
+  Cinco defeitos desta safra foram instrumento certo em ambiente errado — `npm install`
   contra CI que usa `npm ci`, container velho contra código novo, screenshot escalado
-  lido como 1:1. O instrumento funcionava e reportava sobre outra coisa.
+  lido como 1:1. O instrumento funcionava e reportava sobre outra coisa. E a quinta é
+  na direção INVERSA: um cenário passou em Node puro e falhou deterministicamente sob
+  Jest. O ambiente mais permissivo **esconde** o defeito, e parar nele daria medição
+  correta com conclusão errada. Reproduza no ambiente que vale, não no mais simples.
+- **Asserção sobre EFEITO, nunca sobre chamada.** `resolves.toBeUndefined()` num
+  helper que não faz nada passa para sempre. Um helper de teardown que buscava o
+  dispatcher do undici era no-op silencioso dentro do Jest, e o que o pegou foi exigir
+  que os sockets DIMINUÍSSEM. Vale em dobro para sugestão de revisor não medida.
 - **`git commit` em `main`/`master` é recusado por hook.** `npm run hooks:install`
   instala `scripts/hooks/pre-commit`. Hook não é clonado, então a instalação é passo
   explícito — e a regra deixa de depender de conferir o branch.

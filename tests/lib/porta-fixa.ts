@@ -14,13 +14,29 @@
  * morto e o listener novo se cruzam, e quem espera resposta recebe RST —
  * `read ECONNRESET`, num teste sem relação alguma com a causa.
  *
- * Isso explica cada fato do flake que perseguimos: precisa do arquivo do MCP antes
- * (o único que faz `fetch` real para porta efêmera), precisa da suíte inteira (a
- * reciclagem exige volume — a ausência de reprodução no par isolado é PREVISTA
- * pelo mecanismo, não contra ele), e a ~1 em 40 é a probabilidade da colisão.
+ * Medido com `process.getActiveResourcesInfo()`: **2 `TCPSocketWrap` sobrevivem ao
+ * `servidor.close()`, em toda execução** — as duas pontas da mesma conexão, porque
+ * `server.close()` para de aceitar e não fecha keep-alive já estabelecido.
+ * Determinístico, ao contrário do flake.
  *
- * Medido com `process.getActiveResourcesInfo()`: **2 `TCPSocketWrap` sobreviviam ao
- * `servidor.close()`, em toda execução.** Determinístico, ao contrário do flake.
+ * ## O que esta porta NÃO prova
+ *
+ * Que a reciclagem de porta causou o flake originalmente observado. Ela não
+ * causou, provavelmente: o kernel roteia TCP por **4-tuple**, não por porta. Um
+ * RST que o cliente obsoleto produza chega no servidor obsoleto — o mesmo par de
+ * sockets —, e não no listener novo que o supertest abriu na mesma porta. A vítima
+ * observada era um cliente de supertest, com socket e 4-tuple próprios.
+ *
+ * Então isto fecha uma CLASSE compatível com o sintoma, e não a causa. Vale ter
+ * mesmo assim: a colisão deixa de ser possível em vez de rara, e o custo é um
+ * número documentado.
+ *
+ * E sobre frequência: o flake foi visto **duas vezes, uma delas sem o nome do
+ * teste** — o `grep` do turno o descartou. O que liga as duas ocorrências é a
+ * contagem `1 failed, 115 passed`, e contagem não identifica: qualquer falha
+ * isolada em 116 testes produz aquela linha. Podem ter sido duas coisas
+ * diferentes, uma vez cada. Nenhuma taxa é sustentável a partir disso, e a que eu
+ * havia escrito aqui — "~1 em 40" — saiu por isso.
  *
  * ## Por que não fechar o pool do undici, que seria o conserto direto
  *

@@ -854,9 +854,12 @@ describe('INV-33 — o socket obsoleto do pool não pode colidir', () => {
    * recicla portas efêmeras: quando uma cai numa que o undici ainda tem em pool, o
    * socket morto e o listener novo se cruzam e quem espera resposta recebe RST.
    *
-   * Medido antes da correção: **2 `TCPSocketWrap` sobreviviam ao `servidor.close()`
-   * em toda execução.** Determinístico, ao contrário do flake — que é a colisão de
-   * porta, ~1 em 40.
+   * Medido: **2 `TCPSocketWrap` sobrevivem ao `servidor.close()` em toda
+   * execução** — determinístico, ao contrário do flake.
+   *
+   * O que isto NÃO prova é que a reciclagem de porta causou o flake observado: o
+   * kernel roteia por 4-tuple, então um RST do cliente obsoleto chega no servidor
+   * obsoleto e não no listener novo. Fecha uma classe compatível com o sintoma.
    *
    * `--detectOpenHandles` não pega: o undici gerencia os sockets em pool interno e
    * o Jest não os atribui a teste nenhum.
@@ -864,8 +867,8 @@ describe('INV-33 — o socket obsoleto do pool não pode colidir', () => {
   it('INV-33: a porta do servidor de teste está FORA da faixa efêmera', () => {
     // A propriedade inteira em uma asserção. Se alguém trocar por `listen(0)` ou
     // por um número dentro da faixa, o flake volta — e este caso é o que impede,
-    // porque o sintoma dele aparece uma vez em quarenta execuções e num arquivo
-    // que não tem relação com a causa.
+    // porque o sintoma é raro e aparece num arquivo sem relação com a causa —
+    // condições em que ninguém liga a falha a esta linha.
     const endereco = servidor.address();
     const porta = typeof endereco === 'object' && endereco ? endereco.port : 0;
 
