@@ -27,7 +27,7 @@ allowlist fechada — coisas que não dependem de eu ter lembrado.
 | não escreve | o gateway não tem método de escrita (tipo) | o role não tem grant (Postgres) |
 | não vê dado alheio | o `userId` fecha por closure | RLS compara com `app.usuario_atual` |
 | validação de entrada | Zod na tool | Zod na rota, igual ao navegador |
-| irreversibilidade | não existe escrita | soft delete + extensão que recusa `delete` |
+| irreversibilidade | não existe escrita | soft delete, histórico de edição, extensão que recusa `delete` |
 
 Duas linhas ficam **mais fortes** e uma fica mais fraca.
 
@@ -77,6 +77,30 @@ camadas, e nenhuma delas é convencional:
    apagado logicamente, escreve o backup em `.parcial`, faz `fsync`, relê,
    confere as contagens, renomeia, e só então apaga. Proteção topológica: não há
    endpoint a permitir ou negar.
+5. **Histórico de edição.** Cada `PUT /habits/:id` grava a versão anterior em
+   `habit_revisions`, na mesma transação, e volta por
+   `POST /habits/:id/revisions/:revisionId/restore`. O confirm do reagendamento
+   ganhou isso de graça por passar pelo mesmo `update` do repositório — que era o
+   argumento de ter um caminho de escrita só, e não dois.
+
+   O detalhe que faz disso recuperação em vez de outra sobrescrita: **restaurar
+   também grava revisão**. Sem isso, desfazer uma edição destruiria o estado de
+   onde se desfez, e a segunda tentativa de voltar não teria para onde ir — o
+   defeito que a tabela existe para fechar, reintroduzido pela função que o fecha.
+
+## O que a derivação de `destructiveHint` provou na prática
+
+Vale registrar porque é raro observar um argumento de desenho se pagando.
+
+A anotação `destructiveHint` da tool `request` era `true`, e era derivada de
+`ROTAS_PERMITIDAS.some(r => r.irreversivel)` — com `PUT /habits/:id` e o confirm
+do reagendamento marcadas `true`, porque sobrescreviam sem histórico.
+
+A migração do histórico mudou as duas linhas para `false`. **`destructiveHint`
+virou `false` sozinho**, e ninguém abriu `primitivas.ts`. Uma constante escrita à
+mão teria continuado `true`, e o cliente seguiria pedindo confirmação para um
+`GET` — a habituação que corrói a confirmação, que era exatamente a objeção que
+originou a derivação.
 
 ## A proveniência, e a assimetria que a torna honesta
 
@@ -136,20 +160,11 @@ cliente abusivo, e **não** é defesa contra abuso distribuído.
   auditoria: não há tabela, não há retenção, e `createdVia` diz que o assistente
   escreveu sem dizer o que ele consultou. Passa a ser obrigatório se houver
   superfície de chat no dashboard.
-- **Histórico de edição.** `PUT /habits/:id` e o confirm do reagendamento
-  sobrescrevem sem guardar o valor anterior — são as duas rotas irreversíveis do
-  alcance, e a razão de `destructiveHint` ser `true`. Com histórico, as duas viram
-  reversíveis e a anotação vira `false` sozinha, porque é derivada.
-
-  Isto não é lacuna da camada MCP: é uma assimetria do domínio que as primitivas
-  tornaram **alcançável por composição**. E é a única promessa do objetivo do
-  `AGENTS.md` — "exato e recuperável" — que hoje não se cumpre.
-
-  Custa menos do que parece para metade do caso: o token assinado da proposta de
-  reagendamento já carrega `currentScheduledDays`, que é o estado ANTERIOR do
-  agendamento. A informação existe, é usada para revalidar no confirm, e é
-  descartada dez minutos depois. Persistir o que já se calcula é mais barato que
-  passar a calcular.
+- **Retenção do histórico.** `habit_revisions` cresce uma linha por edição, sem
+  limite e sem política de descarte. Para uso próprio isso não é problema; num
+  hábito editado diariamente por anos, é. O corte não é óbvio — descartar por
+  idade apaga justamente o que se quer recuperar de um erro antigo — então fica
+  declarado em vez de resolvido por um número arbitrário.
 - **`paths` do OpenAPI.** Dívida declarada. O conserto é derivar da mesma fonte
   que `habits://contratos`.
 - **Teto de taxa distribuído.** Ver acima: hoje é por processo.

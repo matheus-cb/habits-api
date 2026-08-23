@@ -39,6 +39,24 @@ import { Prisma } from '@prisma/client';
  */
 const MODELOS_COM_SOFT_DELETE = new Set(['Habit', 'Checkin']);
 
+/**
+ * Histórico: não tem soft delete, e também não pode ser apagado.
+ *
+ * `HabitRevision` não entra em `MODELOS_COM_SOFT_DELETE` porque não faz sentido —
+ * uma revisão apagada logicamente seria uma versão que existiu, deixou de
+ * aparecer, e continua no banco: três estados para uma tabela cujo propósito é
+ * ter dois.
+ *
+ * Mas ela precisa da OUTRA metade da proteção. Sem esta lista, `revision.delete`
+ * seria permitido pelo primeiro `if` da extensão — que devolve `query(args)` para
+ * todo modelo fora do conjunto de soft delete. Histórico que a aplicação pode
+ * apagar não é histórico, e o caminho até ele passaria pela primitiva `request`
+ * no dia em que alguém expusesse uma rota de limpeza.
+ *
+ * O caminho físico continua sendo o `CASCADE` do purge, que usa client próprio.
+ */
+const MODELOS_SEM_DELETE_FISICO = new Set(['HabitRevision']);
+
 /** Alcançam linha apagada e a modificam. Filtradas, não proibidas. */
 const OPERACOES_DE_ESCRITA_EM_LOTE = new Set(['updateMany']);
 
@@ -61,6 +79,13 @@ export const softDelete = Prisma.defineExtension({
   query: {
     $allModels: {
       async $allOperations({ model, operation, args, query }) {
+        if (MODELOS_SEM_DELETE_FISICO.has(model) && OPERACOES_DE_DELETE_FISICO.has(operation)) {
+          throw new Error(
+            `${model}.${operation} não é permitido: histórico que a aplicação apaga não é ` +
+              'histórico. A remoção só acontece por CASCADE em `npm run purge`.'
+          );
+        }
+
         if (!MODELOS_COM_SOFT_DELETE.has(model)) {
           return query(args);
         }

@@ -431,6 +431,50 @@ uris=$(jq -r '[.result.resources[].uri] | sort | join(",")' <<<"$corpo" 2>/dev/n
 conferir_igual "INV-25: os quatro recursos de descoberta são anunciados" \
   'habits://contratos,habits://openapi,habits://rotas,habits://schema' "$uris" "$corpo"
 
+# ── 10d. INV-31: histórico de edição na imagem ──────────────────────────────────
+#
+# A Camada 2 prova o comportamento com a aplicação em processo. Esta prova que a
+# migração `historico_de_edicao` rodou no CONTAINER — o `migrate deploy` do
+# entrypoint é o único lugar onde isso pode falhar, e o sintoma seria 500 na rota
+# de revisões, que nenhuma camada abaixo veria.
+echo ""
+echo "10d. INV-31 — histórico de edição"
+
+resposta=$(requisitar "${auth_a[@]}" -X PUT -H 'Content-Type: application/json' \
+  -d '{"title":"Titulo editado pelo smoke"}' "$API/habits/$habito")
+conferir_status "PUT /habits/:id edita" 200 "$(status_de "$resposta")" "$(corpo_de "$resposta")"
+
+resposta=$(requisitar "${auth_a[@]}" "$API/habits/$habito/revisions")
+corpo=$(corpo_de "$resposta")
+conferir_status "GET /habits/:id/revisions responde 200" 200 "$(status_de "$resposta")" "$corpo"
+
+quantas=$(jq -r '.data | length' <<<"$corpo" 2>/dev/null)
+conferir_igual "INV-31: a edição deixou UMA versão anterior" 1 "$quantas" "$corpo"
+
+revisao=$(jq -r '.data[0].id' <<<"$corpo" 2>/dev/null)
+titulo_antigo=$(jq -r '.data[0].title' <<<"$corpo" 2>/dev/null)
+
+resposta=$(requisitar "${auth_a[@]}" -X POST "$API/habits/$habito/revisions/$revisao/restore")
+corpo=$(corpo_de "$resposta")
+conferir_status "POST .../revisions/:id/restore responde 200" 200 "$(status_de "$resposta")" "$corpo"
+conferir_igual "INV-31: restaurar devolveu o título anterior" \
+  "$titulo_antigo" "$(jq -r '.data.title' <<<"$corpo" 2>/dev/null)" "$corpo"
+
+# E restaurar gravou revisão TAMBÉM: sem isso, desfazer destruiria o estado de
+# onde se desfez, e a segunda volta não teria para onde ir.
+resposta=$(requisitar "${auth_a[@]}" "$API/habits/$habito/revisions")
+corpo=$(corpo_de "$resposta")
+conferir_igual "INV-31: restaurar também gravou versão (agora são duas)" \
+  2 "$(jq -r '.data | length' <<<"$corpo" 2>/dev/null)" "$corpo"
+
+# A anotação derivada, contra o endpoint real: era `true` enquanto PUT e o confirm
+# sobrescreviam sem histórico, e virou `false` sem ninguém editar `primitivas.ts`.
+resposta=$(requisitar "${auth_a[@]}" "${mcp[@]}" -X POST \
+  -d '{"jsonrpc":"2.0","id":15,"method":"tools/list","params":{}}' "$BASE/mcp")
+corpo=$(corpo_de "$resposta")
+hint=$(jq -r '.result.tools[] | select(.name=="request") | .annotations.destructiveHint' <<<"$corpo" 2>/dev/null)
+conferir_igual "INV-31: destructiveHint da tool request é false na imagem" false "$hint" "$corpo"
+
 
 
 # Chamar uma tool de escrita que não existe: erro, nunca sucesso silencioso.

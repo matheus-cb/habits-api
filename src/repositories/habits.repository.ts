@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { prisma } from '@/config/database';
-import { Habit } from '@prisma/client';
+import { Habit, HabitRevision } from '@prisma/client';
 
 export class HabitsRepository {
   async findById(id: string): Promise<Habit | null> {
@@ -36,14 +36,59 @@ export class HabitsRepository {
     });
   }
 
+  /**
+   * Edita o hábito e grava a versão ANTERIOR, na mesma transação.
+   *
+   * A transação não é zelo: sem ela existem dois estados intermediários ruins, e
+   * o segundo é pior que perder a edição. Se a revisão gravar e o update falhar,
+   * o histórico ganha uma versão que nunca foi substituída — e a linha mais
+   * recente de `habit_revisions` deixa de significar "o que havia antes da última
+   * edição". Se o update passar e a revisão falhar, volta a assimetria que esta
+   * tabela existe para fechar, silenciosamente e só naquele hábito.
+   *
+   * `anterior` vem de dentro da transação, e não do service, para o snapshot ser
+   * do estado que está sendo substituído e não de uma leitura anterior — entre
+   * uma leitura no service e o update aqui cabe outra edição.
+   */
   async update(
     id: string,
-    data: { title?: string; description?: string | null; scheduledDays?: number[] }
+    data: { title?: string; description?: string | null; scheduledDays?: number[] },
+    changedVia: 'user' | 'assistant' = 'user'
   ): Promise<Habit> {
-    return prisma.habit.update({
-      where: { id },
-      data,
+    return prisma.$transaction(async (tx) => {
+      const anterior = await tx.habit.findFirst({ where: { id } });
+
+      if (!anterior) {
+        // O service já validou dono e existência; chegar aqui sem linha significa
+        // exclusão concorrente. Deixar o `update` estourar dá o erro do Prisma,
+        // que o middleware traduz — e não uma revisão de um hábito que não existe.
+        return tx.habit.update({ where: { id }, data });
+      }
+
+      await tx.habitRevision.create({
+        data: {
+          habitId: id,
+          title: anterior.title,
+          description: anterior.description,
+          scheduledDays: anterior.scheduledDays,
+          changedVia,
+        },
+      });
+
+      return tx.habit.update({ where: { id }, data });
     });
+  }
+
+  /** Da mais recente para a mais antiga: a primeira é o que havia antes da última edição. */
+  async findRevisions(habitId: string): Promise<HabitRevision[]> {
+    return prisma.habitRevision.findMany({
+      where: { habitId },
+      orderBy: { replacedAt: 'desc' },
+    });
+  }
+
+  async findRevisionById(id: string, habitId: string): Promise<HabitRevision | null> {
+    return prisma.habitRevision.findFirst({ where: { id, habitId } });
   }
 
   /**

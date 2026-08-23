@@ -76,7 +76,9 @@ export function registrarPrimitivas(
           '`habits://schema` para os nomes reais de tabela e coluna; eles são citados com aspas ' +
           'duplas quando têm maiúscula ("userId", "habitId", "deletedAt", "createdAt"). ' +
           'Registro apagado tem "deletedAt" não nulo — filtre por `"deletedAt" IS NULL` para ver ' +
-          'só o que está ativo.',
+          'só o que está ativo. `habit_revisions` guarda o estado ANTERIOR de cada edição, com ' +
+          '"replacedAt" sendo o instante em que aquela versão deixou de ser a corrente; o estado ' +
+          'atual não está lá, está em `habits`.',
         inputSchema: { sql: z.string().min(1).max(8000) },
         annotations: {
           readOnlyHint: true,
@@ -97,10 +99,12 @@ export function registrarPrimitivas(
         'Faz uma chamada à API do Habits em seu nome. Só o path — o host é fixo. As rotas ' +
         'permitidas estão no recurso `habits://rotas`, com o corpo esperado em ' +
         '`habits://openapi`; qualquer outra é recusada com 403 antes de sair daqui. ' +
-        'Apagar é reversível: DELETE de hábito e de check-in é LÓGICO e volta por `/restore`, e ' +
-        'o apagamento físico não é rota. EDITAR não é: `PUT /habits/:id` e o confirm do ' +
-        'reagendamento sobrescrevem sem histórico. Confirme com a pessoa antes de qualquer ' +
-        'chamada que altere estado, e cite a rota e o corpo que você vai mandar.',
+        'Toda escrita no seu alcance é reversível, e por caminhos diferentes: apagar hábito ou ' +
+        'check-in é LÓGICO e volta por `/restore`; EDITAR grava a versão anterior e volta por ' +
+        '`POST /habits/:id/revisions/:revisionId/restore` — use `GET /habits/:id/revisions` para ' +
+        'ver o que havia antes. O apagamento físico não é rota. Reversível não é licença: ' +
+        'confirme com a pessoa antes de qualquer chamada que altere estado, e cite a rota e o ' +
+        'corpo que você vai mandar.',
       inputSchema: {
         metodo: z.enum(['GET', 'POST', 'PUT', 'DELETE']),
         path: z.string().min(1).describe('Começa com "/api/v1". Sem host.'),

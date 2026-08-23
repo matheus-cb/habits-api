@@ -75,9 +75,11 @@ export function createMcpRouter(
           'afirmar tem de vir de uma leitura — não estime, não arredonde de cabeça, não',
           'complete uma série que você não consultou.',
           '',
-          'Escrita é reversível por construção: apagar hábito ou check-in é LÓGICO e volta por',
-          '`/restore`. Isso é uma rede de segurança, não licença para apagar e ver o que',
-          'acontece — o apagamento definitivo é um script que só a pessoa roda.',
+          'Escrita é reversível por construção, e por dois mecanismos: apagar é LÓGICO e volta',
+          'por `/restore`; editar grava a versão anterior em `habit_revisions` e volta por',
+          '`/revisions/:revisionId/restore`. Isso é rede de segurança, não licença para',
+          'escrever e ver o que acontece — o apagamento definitivo é um script que só a pessoa',
+          'roda, e não existe como rota.',
         ].join('\n'),
       }
     );

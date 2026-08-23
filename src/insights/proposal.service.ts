@@ -103,7 +103,8 @@ export class ProposalService {
   async confirm(
     userId: string,
     token: string,
-    now: number = Date.now()
+    now: number = Date.now(),
+    via: 'user' | 'assistant' = 'user'
   ): Promise<RescheduleResult> {
     const payload = decode(token);
 
@@ -157,9 +158,19 @@ export class ProposalService {
       throw new BadRequestError('Proposta com dias inválidos');
     }
 
-    const atualizado = await this.habitsRepository.update(habit.id, {
-      scheduledDays: [...dias].sort((a, b) => a - b),
-    });
+    // `changedVia` repassado, e não deixado no default: o confirm é o único
+    // ponto do sistema em que uma escrita nasce de uma proposta REDIGIDA pelo
+    // modelo, mesmo com a decisão sendo da pessoa. Gravar isso como `user`
+    // apagaria a única marca de que houve IA no caminho.
+    //
+    // O `update` do repositório grava a revisão do estado anterior na mesma
+    // transação — é por isso que esta rota deixou de ser irreversível, e por isso
+    // ela usa o mesmo caminho de escrita do `PUT` em vez de um próprio.
+    const atualizado = await this.habitsRepository.update(
+      habit.id,
+      { scheduledDays: [...dias].sort((a, b) => a - b) },
+      via
+    );
 
     return {
       habitId: atualizado.id,

@@ -126,13 +126,13 @@ export const ROTAS_PERMITIDAS: readonly RotaPermitida[] = [
   {
     metodo: 'PUT',
     padrao: '/api/v1/habits/:id',
-    motivo: 'edita título, descrição ou dias — SOBRESCREVE, não há histórico',
+    motivo: 'edita título, descrição ou dias — reversível por /revisions/:id/restore',
     escreve: true,
-    // A única irreversível do alcance, e a razão de a anotação da tool ser
-    // pessimista. O soft delete cobre exclusão; edição não tem equivalente:
-    // o título anterior é perdido. Se algum dia houver histórico de revisão,
-    // isto vira `false` e `destructiveHint` acompanha sozinho.
-    irreversivel: true,
+    // Era `true`, e a migração `historico_de_edicao` a tornou `false`: cada
+    // edição grava o estado anterior em `habit_revisions`, na mesma transação.
+    // Isto é a anotação derivada funcionando como prometido — ninguém tocou em
+    // `primitivas.ts`, e `destructiveHint` mudou porque esta linha mudou.
+    irreversivel: false,
   },
   {
     metodo: 'POST',
@@ -170,13 +170,28 @@ export const ROTAS_PERMITIDAS: readonly RotaPermitida[] = [
     irreversivel: false,
   },
   {
+    metodo: 'GET',
+    padrao: '/api/v1/habits/:id/revisions',
+    motivo: 'histórico de edições, da mais recente para a mais antiga',
+    escreve: false,
+    irreversivel: false,
+  },
+  {
+    metodo: 'POST',
+    padrao: '/api/v1/habits/:id/revisions/:revisionId/restore',
+    motivo: 'volta o hábito a uma versão anterior — grava revisão também',
+    escreve: true,
+    irreversivel: false,
+  },
+  {
     metodo: 'POST',
     padrao: '/api/v1/insights/reschedule-proposals/confirm',
-    motivo: 'aplica proposta assinada — sobrescreve scheduledDays, sem histórico',
+    motivo: 'aplica proposta assinada — reversível por /revisions/:id/restore',
     escreve: true,
-    // Mesmo caso do PUT: o agendamento anterior não é guardado. INV-18 garante
-    // que a IA não aplica sozinha; não garante que dê para desfazer.
-    irreversivel: true,
+    // Passa pelo MESMO `update` do repositório que o PUT, e por isso ganhou o
+    // histórico sem código próprio. Era o argumento de usar um caminho de escrita
+    // só: um segundo seria um segundo lugar de onde esquecer o snapshot.
+    irreversivel: false,
   },
 ] as const;
 
@@ -251,15 +266,25 @@ export const ROTAS_NEGADAS: readonly { metodo: string; padrao: string; motivo: s
  * desenho em que a decisão migrou do servidor para o cliente essa habituação
  * corrói a única defesa que resta.
  *
- * Onde a premissa dele estava incompleta: ele afirmou que **nada** alcançável é
- * irreversível, porque o delete é lógico. O delete é. `PUT /habits/:id` e o
- * `confirm` do reagendamento não são — os dois sobrescrevem sem histórico. O soft
- * delete cobriu exclusão e deixou edição de fora.
+ * Onde a premissa dele estava incompleta: ele afirmou que **nada** alcançável era
+ * irreversível, porque o delete é lógico. O delete era. `PUT /habits/:id` e o
+ * `confirm` do reagendamento não eram — os dois sobrescreviam sem histórico. O
+ * soft delete cobriu exclusão e deixou edição de fora.
  *
- * Então a anotação continua `true` hoje, e a diferença é que ela deixou de ser
- * pessimismo em bloco: é consequência de duas rotas nomeadas. No dia em que
- * edição ganhar histórico, as duas viram `false` e a anotação vira `false` sem
- * ninguém tocar nela. É "derivar, não duplicar" aplicado à própria anotação.
+ * ## E então a derivação fez o que era para fazer
+ *
+ * A migração `historico_de_edicao` fechou as duas: cada edição grava o estado
+ * anterior em `habit_revisions`, na mesma transação, e volta por
+ * `POST /habits/:id/revisions/:revisionId/restore`. As duas linhas viraram
+ * `irreversivel: false`, e **`destructiveHint` virou `false` sozinho** — ninguém
+ * editou `primitivas.ts`.
+ *
+ * Isto é o valor da derivação em vez da constante, observado e não argumentado: a
+ * anotação escrita à mão teria continuado `true`, e o cliente seguiria pedindo
+ * confirmação para um `GET` — a habituação que corrói a confirmação, que era
+ * justamente a objeção. Hoje `ALCANCE_TEM_IRREVERSIVEL` é `false`, e o dia em que
+ * uma rota irreversível entrar na lista ela volta a ser `true` sem ninguém
+ * lembrar de nada.
  */
 export const ALCANCE_TEM_IRREVERSIVEL = ROTAS_PERMITIDAS.some((rota) => rota.irreversivel);
 

@@ -714,3 +714,104 @@ describe('INV-29 — toda tabela do banco está classificada', () => {
     }
   });
 });
+
+describe('INV-31 — a edição pelo assistente é reversível e rastreada', () => {
+  it('INV-31: `request` edita, o histórico guarda o anterior, e volta pelo mesmo caminho', async () => {
+    // O ciclo que fecha a promessa do Objetivo pela superfície do assistente: ele
+    // edita, e a pessoa consegue desfazer sem ter guardado nada por conta própria.
+    const a = await registrar('e2e-historico@example.com');
+    const habitId = await criarHabito(a.token, 'Titulo original');
+    const gateway = new HttpRequestGateway();
+
+    const editado = await gateway.chamar({
+      token: a.token,
+      metodo: 'PUT',
+      path: `/api/v1/habits/${habitId}`,
+      corpo: { title: 'Titulo do assistente' },
+    });
+    expect(editado.status).toBe(200);
+
+    const historico = await gateway.chamar({
+      token: a.token,
+      metodo: 'GET',
+      path: `/api/v1/habits/${habitId}/revisions`,
+    });
+    const versoes = (historico.corpo as { data: { id: string; title: string; changedVia: string }[] })
+      .data;
+
+    expect(versoes).toHaveLength(1);
+    expect(versoes[0]!.title).toBe('Titulo original');
+    // INV-28: a marca de que foi o assistente que editou, não a pessoa.
+    expect(versoes[0]!.changedVia).toBe('assistant');
+
+    const voltou = await gateway.chamar({
+      token: a.token,
+      metodo: 'POST',
+      path: `/api/v1/habits/${habitId}/revisions/${versoes[0]!.id}/restore`,
+    });
+    expect(voltou.status).toBe(200);
+    expect((voltou.corpo as { data: { title: string } }).data.title).toBe('Titulo original');
+  });
+
+  it('INV-31: `query` alcança o histórico, e só o das próprias revisões', async () => {
+    // `habit_revisions` é exposta a `query` de propósito — histórico de edição é
+    // exatamente o que se quer perguntar em linguagem natural. A política a escopa
+    // pelo dono do HÁBITO, porque a revisão não tem `userId` próprio: duplicá-lo
+    // abriria a chance de divergir do dono.
+    const a = await registrar('e2e-query-hist-a@example.com');
+    const b = await registrar('e2e-query-hist-b@example.com');
+    const meu = await criarHabito(a.token, 'Hábito de A');
+    const dele = await criarHabito(b.token, 'Hábito de B');
+
+    for (const [token, id, titulo] of [
+      [a.token, meu, 'A editado'],
+      [b.token, dele, 'B editado'],
+    ] as const) {
+      await request(app)
+        .put(`/api/v1/habits/${id}`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ title: titulo });
+    }
+
+    const resultado = await gatewayDeQuery!.executar(
+      a.userId,
+      'SELECT title FROM habit_revisions ORDER BY title'
+    );
+
+    expect(resultado.linhas.map((l) => (l as { title: string }).title)).toEqual(['Hábito de A']);
+  });
+
+  it('INV-25: `destructiveHint` da tool chegou a false pelo caminho derivado', async () => {
+    // Contra o endpoint real, não contra a constante: é o que um cliente MCP vê, e
+    // é a evidência de que a migração do histórico mudou a anotação sem ninguém
+    // ter editado `primitivas.ts`.
+    const a = await registrar('e2e-hint@example.com');
+    const rpc = await (async () => {
+      await request(app)
+        .post('/mcp')
+        .set('Authorization', `Bearer ${a.token}`)
+        .set('Accept', 'application/json, text/event-stream')
+        .send({
+          jsonrpc: '2.0',
+          id: 900,
+          method: 'initialize',
+          params: {
+            protocolVersion: '2025-06-18',
+            capabilities: {},
+            clientInfo: { name: 'hint', version: '0' },
+          },
+        });
+      return request(app)
+        .post('/mcp')
+        .set('Authorization', `Bearer ${a.token}`)
+        .set('Accept', 'application/json, text/event-stream')
+        .send({ jsonrpc: '2.0', id: 901, method: 'tools/list', params: {} });
+    })();
+
+    const requestTool = (
+      rpc.body.result.tools as { name: string; annotations: { destructiveHint: boolean } }[]
+    ).find((t) => t.name === 'request')!;
+
+    expect(requestTool.annotations.destructiveHint).toBe(false);
+  });
+});

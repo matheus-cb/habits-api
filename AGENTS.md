@@ -6,11 +6,10 @@
 endpoints em `/api/v1`. A prioridade é que o registro de hábitos seja exato e
 recuperável; a IA é assistiva e **nunca executa sozinha**.
 
-**Recuperável vale hoje para exclusão e não vale para edição.** `PUT /habits/:id` e
-o confirm do reagendamento sobrescrevem sem histórico: o título de um hábito de três
-anos pode ser reescrito e o anterior deixa de existir, sem delete, sem purge e sem
-rastro. É a única promessa deste parágrafo que não se cumpre, e está aqui em vez de
-numa nota de rodapé por isso. Ver `docs/PRIMITIVAS.md`.
+**Recuperável vale para exclusão e para edição** — por mecanismos diferentes: soft
+delete com `/restore`, e histórico de versões com `/revisions/:id/restore`. Edição
+ficou de fora até a migração `historico_de_edicao`, e a assimetria só foi percebida
+quando as primitivas do MCP a tornaram alcançável por composição.
 
 Regra nova, invariante ou comando entra **neste arquivo**, que todo agente lê. O
 `CLAUDE.md` apenas o importa e guarda o que é mecânica exclusiva do Claude Code;
@@ -84,10 +83,13 @@ política de linha e allowlist fechada. Por quê e a que custo: `docs/PRIMITIVAS
 | **INV-28** | Escrita do assistente é marcada na origem, e o delete é sempre **lógico** | `src/mcp/origem.ts`, `src/config/soft-delete.ts` |
 | **INV-29** | Toda tabela está classificada: exposta com RLS, ou não exposta com motivo | `src/mcp/tabelas.ts` |
 | **INV-30** | Execução arbitrária tem teto de **frequência** e de **simultaneidade** | `middlewares/rate-limit.middleware.ts` |
+| **INV-31** | Toda edição grava a versão anterior, e restaurar grava também | `repositories/habits.repository.ts` |
 
 INV-27 falha **fechada** (sem a variável de sessão, zero linhas) e tem duas barreiras,
 as duas do banco: gramática e permissão. INV-29 é INV-26 aplicada ao banco — tabela nova
-nasce inacessível. Detalhes e ausências declaradas em `docs/PRIMITIVAS.md`.
+nasce inacessível. INV-31 é o que zerou `ALCANCE_TEM_IRREVERSIVEL`, e por a anotação
+`destructiveHint` ser **derivada** dela ninguém teve de lembrar de mudar as duas.
+Detalhes e ausências declaradas em `docs/PRIMITIVAS.md`.
 
 ### Contrato com os clientes
 

@@ -40,13 +40,13 @@ model User {
 }
 
 model Habit {
-  id            String    @id @default(uuid())
+  id            String     @id @default(uuid())
   title         String
   description   String?
   userId        String
-  scheduledDays Int[]     @default([])
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  scheduledDays Int[]      @default([])
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
   /// Soft delete. `null` = ativo. Apagar hábito destruiria todo o histórico de
   /// check-ins por cascade, e o histórico é o valor inteiro do app — então o
   /// caminho alcançável por assistente é lógico e reversível. O físico é um
@@ -58,19 +58,53 @@ model Habit {
   /// Quem criou. Preenchido pelo servidor, nunca pelo corpo da requisição.
   createdVia    CreatedVia @default(user)
 
-  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  checkins Checkin[]
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  checkins  Checkin[]
+  revisions HabitRevision[]
 
   @@index([userId])
   @@index([userId, deletedAt])
   @@map("habits")
 }
 
+/// O estado ANTERIOR de um hábito, gravado antes de cada edição.
+///
+/// Existe porque o objetivo deste repositório promete registro "exato e
+/// recuperável", e até esta migração recuperável valia para exclusão e não valia
+/// para edição: `PUT /habits/:id` sobrescrevia o título e o anterior deixava de
+/// existir — sem delete, sem purge, sem rastro. O soft delete cobriu exclusão e
+/// deixou edição de fora, e as primitivas do MCP tornaram essa assimetria
+/// alcançável por composição.
+///
+/// Uma linha aqui é uma versão que **deixou** de ser a corrente, e `replacedAt` é
+/// o instante em que ela deixou. Não há linha para o estado atual: ele vive em
+/// `habits`. Guardar o atual duplicado criaria duas fontes de verdade para o
+/// mesmo valor, e a que ninguém lê é a que divergiria.
+model HabitRevision {
+  id            String     @id @default(uuid())
+  habitId       String
+  /// Os três campos que `PUT /habits/:id` sobrescreve. Se a rota passar a
+  /// escrever um quarto, ele entra aqui — e o teste de INV-31 é o que cobra.
+  title         String
+  description   String?
+  scheduledDays Int[]      @default([])
+  /// Quando esta versão parou de ser a corrente.
+  replacedAt    DateTime   @default(now())
+  /// Quem fez a edição que substituiu esta versão. Mesma regra de `createdVia`:
+  /// vem do servidor, nunca do corpo.
+  changedVia    CreatedVia @default(user)
+
+  habit Habit @relation(fields: [habitId], references: [id], onDelete: Cascade)
+
+  @@index([habitId, replacedAt])
+  @@map("habit_revisions")
+}
+
 model Checkin {
-  id        String    @id @default(uuid())
-  habitId   String
-  date      DateTime  @default(now()) @db.Date
-  createdAt DateTime  @default(now())
+  id            String     @id @default(uuid())
+  habitId       String
+  date          DateTime   @default(now()) @db.Date
+  createdAt     DateTime   @default(now())
   /// Soft delete. Desfazer check-in passa a ser reversível — antes destruía o
   /// registro.
   deletedAt     DateTime?

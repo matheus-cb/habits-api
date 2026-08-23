@@ -41,10 +41,61 @@ export class HabitsService {
     });
   }
 
-  async updateHabit(habitId: string, userId: string, data: UpdateHabitInput) {
+  async updateHabit(
+    habitId: string,
+    userId: string,
+    data: UpdateHabitInput,
+    changedVia: Origem = 'user'
+  ) {
     const habit = await this.getHabitById(habitId, userId);
 
-    return this.habitsRepository.update(habit.id, data);
+    return this.habitsRepository.update(habit.id, data, changedVia);
+  }
+
+  /**
+   * O histórico de edições de um hábito.
+   *
+   * `getHabitById` primeiro, e não uma consulta direta em `habit_revisions`
+   * filtrando por dono: a revisão não tem `userId` próprio de propósito, e o dono
+   * é o do hábito. Consultar a revisão direto exigiria replicar a regra de posse
+   * aqui — é INV-03 valendo por composição em vez de por repetição.
+   */
+  async getRevisions(habitId: string, userId: string) {
+    const habit = await this.getHabitById(habitId, userId);
+
+    return this.habitsRepository.findRevisions(habit.id);
+  }
+
+  /**
+   * Volta o hábito a uma versão anterior.
+   *
+   * O ponto que faz isto ser recuperação e não outra sobrescrita: restaurar
+   * **também** grava revisão. Sem isso, desfazer uma edição destruiria o estado
+   * de onde se desfez, e a segunda tentativa de voltar não teria para onde ir —
+   * exatamente o defeito que esta tabela existe para fechar, reintroduzido pela
+   * própria função que o fecha.
+   *
+   * Por isso o restore usa `update`, o mesmo caminho da edição, em vez de escrever
+   * direto. Um segundo caminho de escrita seria um segundo lugar de onde esquecer
+   * o snapshot.
+   */
+  async restoreRevision(habitId: string, revisionId: string, userId: string, via: Origem = 'user') {
+    const habit = await this.getHabitById(habitId, userId);
+    const revisao = await this.habitsRepository.findRevisionById(revisionId, habit.id);
+
+    if (!revisao) {
+      throw new NotFoundError('Revision');
+    }
+
+    return this.habitsRepository.update(
+      habit.id,
+      {
+        title: revisao.title,
+        description: revisao.description,
+        scheduledDays: revisao.scheduledDays,
+      },
+      via
+    );
   }
 
   /**

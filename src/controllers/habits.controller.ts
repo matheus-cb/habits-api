@@ -35,8 +35,39 @@ export class HabitsController {
   update = async (req: Request<{ id: string }, object, UpdateHabitInput>, res: Response) => {
     const userId = req.user!.id;
     const { id } = req.params;
-    const result = await this.habitsService.updateHabit(id, userId, req.body);
+    const result = await this.habitsService.updateHabit(
+      id,
+      userId,
+      req.body,
+      origemDaRequisicao(req)
+    );
     return res.status(200).json(successResponse(result, 'Habit updated successfully'));
+  };
+
+  /**
+   * O histórico de edições. Cada item é uma versão que DEIXOU de ser a corrente.
+   *
+   * `replacedAt` é o instante em que ela deixou, e não há item para o estado
+   * atual — ele está em `GET /habits/:id`. Duplicá-lo aqui criaria duas fontes
+   * para o mesmo valor, e a que ninguém lê é a que divergiria.
+   */
+  revisions = async (req: Request<{ id: string }>, res: Response) => {
+    const userId = req.user!.id;
+    const { id } = req.params;
+    const result = await this.habitsService.getRevisions(id, userId);
+    return res.status(200).json(successResponse(result, 'Histórico de edições'));
+  };
+
+  restoreRevision = async (req: Request<{ id: string; revisionId: string }>, res: Response) => {
+    const userId = req.user!.id;
+    const { id, revisionId } = req.params;
+    const result = await this.habitsService.restoreRevision(
+      id,
+      revisionId,
+      userId,
+      origemDaRequisicao(req)
+    );
+    return res.status(200).json(successResponse(result, 'Versão restaurada'));
   };
 
   restore = async (req: Request<{ id: string }>, res: Response) => {

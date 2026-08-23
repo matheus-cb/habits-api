@@ -18,7 +18,7 @@
  */
 
 /** Alcançáveis por `query`: com grant de SELECT **e** política de RLS por usuário. */
-export const TABELAS_EXPOSTAS = ['users', 'habits', 'checkins'] as const;
+export const TABELAS_EXPOSTAS = ['users', 'habits', 'checkins', 'habit_revisions'] as const;
 
 /** Existem e não são alcançáveis. O motivo é o que impede a lista de virar despejo. */
 export const TABELAS_NAO_EXPOSTAS: readonly { tabela: string; motivo: string }[] = [

@@ -6,7 +6,12 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { app } from '@/app';
 import { registerReadOnlyTools, TOOLS_SOMENTE_LEITURA } from '@/mcp/tools';
 import { registrarPrimitivas, registrarRecursos, PRIMITIVAS } from '@/mcp/primitivas';
-import { HttpRequestGateway, ROTAS_NEGADAS, ROTAS_PERMITIDAS } from '@/mcp/request';
+import {
+  ALCANCE_TEM_IRREVERSIVEL,
+  HttpRequestGateway,
+  ROTAS_NEGADAS,
+  ROTAS_PERMITIDAS,
+} from '@/mcp/request';
 import {
   CABECALHO_DE_ORIGEM,
   CABECALHO_DE_PROVA,
@@ -108,13 +113,65 @@ describe('INV-25 — a superfície anunciada é exatamente a declarada', () => {
       const escrevem = tools.filter((t) => t.annotations?.readOnlyHint !== true);
 
       expect(escrevem.map((t) => t.name)).toEqual(['request']);
-      expect(escrevem[0]!.annotations).toMatchObject({
-        destructiveHint: true,
-        openWorldHint: false,
-      });
+      expect(escrevem[0]!.annotations).toMatchObject({ openWorldHint: false });
     } finally {
       await close();
     }
+  });
+
+  it('INV-31: `destructiveHint` é DERIVADO da allowlist, não escrito à mão', async () => {
+    // Este caso é o que torna a derivação observável em vez de uma intenção no
+    // comentário. Ele afirma a relação, não o valor: hoje nenhuma rota é
+    // irreversível e a anotação é `false`; se alguma passar a ser, ela vira `true`
+    // e este caso continua verde — enquanto um caso que afirmasse `false`
+    // reprovaria e alguém "consertaria" mudando o número em vez da causa.
+    const { client, close } = await conectar();
+    try {
+      const { tools } = await client.listTools();
+      const requestTool = tools.find((t) => t.name === 'request')!;
+
+      expect(requestTool.annotations?.destructiveHint).toBe(ALCANCE_TEM_IRREVERSIVEL);
+      expect(ALCANCE_TEM_IRREVERSIVEL).toBe(ROTAS_PERMITIDAS.some((r) => r.irreversivel));
+    } finally {
+      await close();
+    }
+  });
+
+  it('INV-31: nenhuma rota é irreversível, e as que sobrescrevem nomeiam a volta', () => {
+    // O par do caso de cima: ele amarra a anotação à lista, este amarra a lista à
+    // realidade. Uma rota marcada `irreversivel: false` sem caminho de volta seria
+    // a lista mentindo, e a anotação herdaria a mentira sem nada acusar.
+    //
+    // A conferência é sobre o `motivo` porque ele é o texto que vai para o recurso
+    // `habits://rotas`: se ele não nomear a volta, quem confirma a chamada não
+    // sabe que existe uma.
+    //
+    // A primeira versão deste caso usava a regex `/revers|restore|desfa/` sobre o
+    // motivo de TODA rota de escrita, e reprovou nas três rotas de `/restore` —
+    // que não precisam nomear caminho de volta porque **são** o caminho de volta.
+    // O critério certo não é textual: é o que a rota faz com dado que já existe.
+    const cria = (rota: (typeof ROTAS_PERMITIDAS)[number]) =>
+      rota.metodo === 'POST' &&
+      (rota.padrao.endsWith('/habits') || rota.padrao.endsWith('/checkin'));
+    const ehVolta = (rota: (typeof ROTAS_PERMITIDAS)[number]) => rota.padrao.endsWith('/restore');
+
+    // Sobrescreve ou remove dado existente: PUT, os dois DELETE, e o confirm.
+    const sobrescrevem = ROTAS_PERMITIDAS.filter(
+      (rota) => rota.escreve && !cria(rota) && !ehVolta(rota)
+    );
+    const semVoltaNomeada = sobrescrevem.filter((rota) => !/revers|restore/i.test(rota.motivo));
+
+    expect(ROTAS_PERMITIDAS.filter((r) => r.irreversivel)).toEqual([]);
+    // O caso vizinho embutido: se este filtro ficar vazio por engano — porque
+    // alguém renomeou os padrões, por exemplo — a asserção de baixo passaria sem
+    // examinar nada.
+    expect(sobrescrevem.map((r) => `${r.metodo} ${r.padrao}`).sort()).toEqual([
+      'DELETE /api/v1/habits/:habitId/checkins/:id',
+      'DELETE /api/v1/habits/:id',
+      'POST /api/v1/insights/reschedule-proposals/confirm',
+      'PUT /api/v1/habits/:id',
+    ]);
+    expect(semVoltaNomeada.map((r) => `${r.metodo} ${r.padrao}`)).toEqual([]);
   });
 
   it('INV-25: nenhuma tool abre a porta para fora do processo', async () => {
