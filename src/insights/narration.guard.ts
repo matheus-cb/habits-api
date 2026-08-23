@@ -13,10 +13,44 @@ import { AdherenceReport } from './adherence.types';
  * assume. É a mesma ideia do `McpDraftEvidence` do NotaFlow — proveniência
  * derivada do que foi calculado, não declarada por quem escreveu.
  *
- * Limite conhecido e declarado: o guarda lê **dígitos**. Um modelo que escreva
- * "oito de doze" por extenso escapa dele. Por isso o prompt do provedor exige
- * algarismos para toda quantidade, e essa exigência é parte da defesa, não um
- * detalhe de estilo — ver `narrator.anthropic.ts`.
+ * ## O que este guarda NÃO prova
+ *
+ * Declarado aqui porque a versão anterior deste comentário dizia "proveniência
+ * derivada", e isso prometia mais do que o código entrega.
+ *
+ * 1. **Presença, não relação.** `collectAllowedNumbers` monta um CONJUNTO e
+ *    `verifyNarration` só pergunta "este número existe em algum campo?". Ele não
+ *    verifica a afirmação. "Você cumpriu 9 de 12 dias" passa se 9 for o
+ *    `currentStreak` de um hábito e 12 o `bestStreak` de outro — dois números
+ *    verdadeiros, numa frase falsa. E o conjunto **satura**: cada hábito
+ *    contribui ~6 escalares mais `weakestWeekdays` e `extrasByWeekday`, então com
+ *    quatro ou cinco hábitos quase todo inteiro de 0 a 10 está admitido. O guarda
+ *    é forte contra o modelo que INVENTA número e quase cego contra o que
+ *    RECOMBINA números verdadeiros.
+ * 2. **Só dígitos.** "Oito de doze" por extenso escapa. Por isso o prompt exige
+ *    algarismos para toda quantidade — exigência que é parte da defesa, não
+ *    estilo. E como o prompt não é artefato versionado nem coberto por teste,
+ *    editá-lo pode desarmar esta metade sem quebrar nada. O NotaFlow versiona o
+ *    prompt em `AiDraftRun.PromptVersion`; aqui não há equivalente.
+ * 3. **Nada que não seja número.** "Seu ponto mais fraco são as quintas" com o
+ *    relatório dizendo terça, "sua aderência melhorou" quando caiu, ou o nome do
+ *    hábito trocado — tudo passa intacto. A camada promete que todo NÚMERO nasce
+ *    de contagem, e isso é verdade; as afirmações qualitativas do texto redigido
+ *    não são verificadas por ninguém.
+ *
+ * ## Por onde NÃO fechar (1)
+ *
+ * A primeira versão deste comentário dizia que a próxima melhoria óbvia era
+ * exigir que pares "a de b" correspondessem a
+ * `completedInWindow`/`scheduledDaysInWindow` do mesmo hábito. **Está errado**, e
+ * fica registrado porque é o caminho que qualquer um tentaria: o modelo escreve
+ * "8 dos 12", inverte a ordem, intercala uma oração — e a regra de pares perde
+ * para paráfrase. O guarda cresceria sem nunca fechar.
+ *
+ * O caminho é outro: parar de validar linguagem natural e restringir o modelo a
+ * um contrato tipado, com o código montando o texto — ver `docs/IA.md`, seção
+ * "O caminho que fecha (1)". Não está implementado, e depende de decisão de
+ * escopo.
  */
 
 export interface NarrationVerdict {

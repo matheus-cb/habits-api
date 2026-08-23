@@ -6,6 +6,8 @@ Estado real, medido. Item desmarcado é lacuna conhecida, não esquecimento.
 
 - [x] `.env.example` pode ser copiado sem conter segredo real.
 - [x] `docker compose config --quiet` passa.
+- [x] `docker compose up --build --wait` deixa a stack saudável — a imagem sobe,
+      as migrações são aplicadas e o healthcheck fica verde.
 - [x] `npm run docker:up && npm run prisma:migrate` deixa o banco pronto.
 - [x] A API sobe e funciona **sem** `ANTHROPIC_API_KEY`.
 - [x] Nenhuma variável de IA é obrigatória no schema Zod do ambiente.
@@ -17,6 +19,20 @@ Estado real, medido. Item desmarcado é lacuna conhecida, não esquecimento.
 - [x] Toda invariante de INV-01 a INV-19 tem teste que a cita pelo número —
       verificado pelo próprio gate, não pela leitura de quem escreveu.
 - [x] Numeração `INV-nn` compartilhada com `habits-dashboard` e `habits-mobile`.
+
+## Reprodutibilidade
+
+- [x] **As migrações estão versionadas.** `.gitignore` excluía
+      `prisma/migrations/**/migration.sql`: um clone tinha o lock e nenhuma
+      migração, `migrate deploy` respondia "No migration found" e **saía com
+      sucesso**, e o banco ficava sem tabela. Foi o que derrubou a Camada 2 e o
+      smoke na primeira execução do CI.
+- [x] `/health` consulta o banco, com `findFirst` (tempo constante, não
+      `COUNT(*)`), timeout de 2s e envelope de **erro** no 503. Antes respondia 200
+      com o processo vivo e zero tabelas.
+- [x] **Camada 3.5** (`npm run verify:repro`): `git archive HEAD` → build →
+      migrate → smoke. Verificado que pega o defeito das migrações fora do índice.
+- [x] Checagem 8 do gate compara migrações no disco com as do índice.
 
 ## Segurança da suíte
 
@@ -58,11 +74,21 @@ Estado real, medido. Item desmarcado é lacuna conhecida, não esquecimento.
 - [x] Token de uma pessoa não é aplicável por outra, mesmo assinado.
 - [ ] **Auditoria de execução de IA.** Não há tabela de chamadas, custo ou
       tokens. O NotaFlow tem (`AiDraftRun`); aqui não.
-- [ ] **Limite de taxa** nos endpoints de insight.
+- [ ] **Limite de taxa.** Deixou de ser paridade com a régua e passou a ser
+      **pré-requisito de duas correções já aplicadas**: o `/health` agora consulta
+      o banco (endpoint público, sem limite, consumindo conexão do pool) e o
+      `getProposals` paralelizou (até 5 chamadas ao provedor por requisição).
+      As duas trocaram problema observável por pressão de concorrência, e a
+      defesa contra pressão de concorrência é a peça que não existe.
 - [ ] **Chave de assinatura compartilhada.** É sorteada por processo, então a API
       não roda em várias instâncias sem uma chave em comum.
 - [ ] **Números por extenso.** O guarda lê dígitos; "oito de doze" escapa dele. O
       prompt exige algarismos, e essa é a única defesa nesse caso.
+- [ ] **Presença em vez de relação.** O guarda pergunta se o número existe no
+      relatório, não se a afirmação é verdadeira: "9 de 12" passa se 9 e 12
+      estiverem em campos sem ligação. O caminho que fecha isso está desenhado em
+      `docs/IA.md` → "O caminho que fecha (1)", com a tabela de pertinência que a
+      garantia exige — e **não** é uma regra melhor sobre o texto.
 
 ## Testes e CI
 
@@ -72,9 +98,12 @@ Estado real, medido. Item desmarcado é lacuna conhecida, não esquecimento.
 - [x] `tsc --noEmit` é passo separado — `tsup` não checa tipo.
 - [x] `npm run lint` com `--max-warnings=0`.
 - [x] Cada invariante tem também um caso **adversário**, que tenta violá-la.
-- [x] CI: `agent-docs`, `camada-1`, `camada-2` (com serviço Postgres) e `build`.
+- [x] Camada 3 sobe a stack (`docker compose --wait`) e bate nela por HTTP.
+- [x] CI: `agent-docs`, `camada-1`, `camada-2`, `smoke` e `build`.
+- [x] O smoke tem **uma** cópia (`scripts/smoke.sh`), chamada pelo CI e rodável
+      localmente — em vez de setenta linhas de `curl` embutidas no YAML.
+- [x] Falha no smoke despeja os logs dos containers, e a stack é derrubada sempre.
 - [ ] **Sem deploy.** O gate é só de qualidade.
-- [ ] **Sem smoke HTTP** subindo a stack, como o `quality-gate` do NotaFlow faz.
 - [ ] **Sem teste de controller isolado.** Os controllers montam as próprias
       dependências no construtor, então não há como injetar dublê; eles são
       exercitados só pela Camada 2, via HTTP. `InsightsController` é a exceção.

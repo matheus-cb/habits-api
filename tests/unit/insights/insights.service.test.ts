@@ -184,6 +184,95 @@ describe('INV-18 — a justificativa da proposta também cai no determinístico'
     expect(proposta?.proposedScheduledDays).toEqual([1, 3]);
   });
 
+  it('INV-18: adversário — o modelo é chamado no máximo 5 vezes, e em paralelo', async () => {
+    // Antes: um `for` com `await` chamava o modelo uma vez por proposta, em série.
+    // Com 8 hábitos em risco e AI_TIMEOUT_MS em 20s, o pior caso era 160 segundos
+    // numa requisição HTTP, e 8x o custo. Era o vetor de custo real da camada.
+    const oito = Array.from({ length: 8 }, (_, i) => ({
+      habitId: `h${i}`,
+      currentScheduledDays: [1, 3, 5],
+      proposedScheduledDays: [1, 3],
+      removed: [{ weekday: 5, missed: 4, scheduled: 4 }],
+      added: [],
+    }));
+    adherence.buildReport.mockResolvedValue(
+      adherenceReport({
+        habits: oito.map((p, i) =>
+          habitAdherence({ habitId: p.habitId, title: `H${i}`, completionRate: 10 * i })
+        ),
+      })
+    );
+    proposals.buildProposals.mockReturnValue(oito);
+    const preferido = narratorFalso();
+
+    const resultado = await servico(preferido).getProposals('user-1');
+
+    expect(resultado).toHaveLength(8);
+    expect(preferido.narrateProposal).toHaveBeenCalledTimes(5);
+    // As três restantes ainda vêm com justificativa — do determinístico.
+    expect(resultado.filter((p) => p.rationaleSource === 'model')).toHaveLength(5);
+    expect(resultado.filter((p) => p.rationaleSource === 'deterministic')).toHaveLength(3);
+    expect(resultado.every((p) => p.rationale.length > 0)).toBe(true);
+  });
+
+  it('INV-18: o teto vai para os hábitos de pior aderência, não para os primeiros', async () => {
+    // Se houver corte, o modelo redige onde importa mais. Cortar pela ordem que o
+    // relatório devolveu deixaria a decisão ao acaso.
+    const seis = Array.from({ length: 6 }, (_, i) => ({
+      habitId: `h${i}`,
+      currentScheduledDays: [1, 3, 5],
+      proposedScheduledDays: [1, 3],
+      removed: [{ weekday: 5, missed: 4, scheduled: 4 }],
+      added: [],
+    }));
+    adherence.buildReport.mockResolvedValue(
+      adherenceReport({
+        // h0 é o melhor (90%), h5 o pior (5%). O cortado tem de ser h0.
+        habits: seis.map((p, i) =>
+          habitAdherence({ habitId: p.habitId, title: `H${i}`, completionRate: 90 - i * 17 })
+        ),
+      })
+    );
+    proposals.buildProposals.mockReturnValue(seis);
+
+    const resultado = await servico(narratorFalso()).getProposals('user-1');
+
+    const semModelo = resultado.filter((p) => p.rationaleSource === 'deterministic');
+    expect(semModelo).toHaveLength(1);
+    expect(semModelo[0]?.habitId).toBe('h0');
+  });
+
+  it('INV-18: as chamadas ao modelo são concorrentes, não sequenciais', async () => {
+    // Mede sobreposição: se fossem seriais, a segunda só começaria depois da
+    // primeira terminar, e `emVoo` nunca passaria de 1.
+    let emVoo = 0;
+    let maximoEmVoo = 0;
+    const preferido = narratorFalso({
+      narrateProposal: jest.fn(async () => {
+        emVoo++;
+        maximoEmVoo = Math.max(maximoEmVoo, emVoo);
+        await new Promise((r) => setTimeout(r, 10));
+        emVoo--;
+        return 'Sexta escapou 4 de 4 vezes.';
+      }),
+    });
+    const tres = Array.from({ length: 3 }, (_, i) => ({
+      habitId: `h${i}`,
+      currentScheduledDays: [1, 3, 5],
+      proposedScheduledDays: [1, 3],
+      removed: [{ weekday: 5, missed: 4, scheduled: 4 }],
+      added: [],
+    }));
+    adherence.buildReport.mockResolvedValue(
+      adherenceReport({ habits: tres.map((p) => habitAdherence({ habitId: p.habitId })) })
+    );
+    proposals.buildProposals.mockReturnValue(tres);
+
+    await servico(preferido).getProposals('user-1');
+
+    expect(maximoEmVoo).toBeGreaterThan(1);
+  });
+
   it('INV-18: sem sinal, a lista de propostas é vazia — e isso é resultado normal', async () => {
     proposals.buildProposals.mockReturnValue([]);
 

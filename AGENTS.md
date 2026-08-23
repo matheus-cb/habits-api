@@ -60,15 +60,9 @@ A fronteira é a mesma em toda a camada: **a IA sugere, o código valida, a deci
 | **INV-18** | A IA nunca executa: reagendamento é proposta **assinada** aplicada só no confirm | `insights/proposal.service.ts` |
 | **INV-19** | Proposta é sugestão, não autorização — o confirm revalida dono, hábito e dias | `insights/proposal.service.ts` |
 
-INV-14 é a peça que não se resolve com prompt. Um modelo "generoso" que escreva
-"você cumpriu 9 dos 12" quando o cálculo diz 8 de 12 passa por qualquer revisão
-de estilo; o guarda extrai os numerais do texto e reprova o que não estiver no
-relatório. A defesa é do código, não da instrução.
-
-Por que o MCP é para assistente **externo** e não para a própria API se
-consultar: o servidor MCP e o cliente MCP seriam o mesmo processo, e a API
-passaria a chamar a si mesma pelo protocolo. As tools existem para o Claude
-Desktop/Code ler hábitos e estatísticas — nenhuma delas escreve.
+INV-14 não se resolve com prompt: o guarda extrai os numerais e reprova o que não
+está no relatório, e o que ele **não** prova está declarado em
+`narration.guard.ts`. O MCP é para assistente **externo**. Detalhes em `docs/IA.md`.
 
 ### Contrato com os clientes
 
@@ -94,35 +88,64 @@ roda em qualquer sandbox de agente.
 
 ```bash
 ./scripts/check-agent-docs.sh
+npm ci --dry-run          # valida peers como o CI faz; `npm install` não
 npx tsc --noEmit          # tsup NÃO checa tipo: só isto pega erro de tipo
 npm run lint              # --max-warnings=0
 npm run test:unit
 ```
 
-Duas armadilhas que já custaram tempo aqui:
+Três armadilhas, detalhadas em `docs/DECISOES.md`: `npm run build` passa com erro
+de tipo (`tsup` não typecheca — rode `tsc --noEmit`); `src/mcp/tools.ts` importa de
+`zod/v4` ou o `tsc` estoura o heap; e migração precisa estar rastreada **e**
+atualizada — checagem 8 do gate mais `check:schema-drift`.
 
-- **`npm run build` passa com erro de tipo.** `tsup` não typecheca. Havia doze
-  erros invisíveis no `src`, um deles uma chamada de service com dois argumentos
-  onde o método pede três. Rode `tsc --noEmit`, sempre.
-- **`src/mcp/tools.ts` importa de `zod/v4`, não de `zod`.** O SDK do MCP é tipado
-  contra a API v4. Com esquemas da v3 clássica, a resolução de overload do
-  `registerTool` fica profunda o bastante para **estourar o heap do `tsc`** —
-  TS2589, e o comando morre em vez de reportar. O resto do projeto segue na v3.
-
-**Camada 2 — exige PostgreSQL.** Ela apaga as três tabelas antes de cada teste,
-então roda em banco **separado** (`habits_test`, de `.env.test`). `tests/setup.ts`
-**recusa** rodar se o nome do banco não terminar em `_test` — a primeira versão
-usava o `.env` de desenvolvimento e apagaria dados reais em silêncio.
+**Camada 2 — exige PostgreSQL.** Apaga as três tabelas, então roda em banco
+**separado** (`habits_test`, de `.env.test`); `tests/setup.ts` recusa qualquer nome
+que não termine em `_test`.
 
 ```bash
 npm run docker:up
 npm run db:test:create && npm run db:test:migrate
+npm run check:schema-drift    # migrações versionadas == schema.prisma?
 npm run test:integration
 ```
 
-`npm run verify` roda a Camada 1 e tenta a 2. Sem banco ela **avisa em vez de
-falhar**, mas o script sai com **código 3**, para que automação que só lê o exit
-status não confunda "pulou" com "passou".
+**Camada 3 — exige a stack de pé.** Sobe a imagem e bate nela por HTTP. É a única
+que prova que o **container funciona** — o Dockerfile daqui já produziu container
+em loop de reinício sem nada perceber.
+
+```bash
+docker compose up --detach --build --wait
+./scripts/smoke.sh
+```
+
+O smoke vive em `scripts/smoke.sh`, não no workflow: **uma cópia**, rodável nos
+dois lugares. Embutir no YAML garante duas versões divergindo em silêncio.
+
+**Camada 3.5 — o repositório reproduz?** As outras testam o código; esta testa o
+**repositório**, via `git archive HEAD`. Fora do CI de propósito: lá todo checkout
+já é clone limpo. Ver `docs/DECISOES.md`.
+
+```bash
+npm run verify:repro
+```
+
+`npm run verify` roda a Camada 1 e tenta as outras. O que não puder rodar **avisa
+em vez de falhar** e o script sai com **código 3**, para automação não confundir
+"pulou" com "passou". A Camada 3 não sobe a stack sozinha — leva minutos e
+derrubaria a de quem chamou.
+
+### Ferramentas exigidas
+
+| Ferramenta | Versão | Como conferir |
+|---|---|---|
+| Node | **22** (o do CI) | `node --version` |
+| Docker | daemon **em execução**, não só o cliente | `docker info` |
+| `jq` | qualquer | `jq --version` |
+| `git archive` | do próprio git | `git archive --format=tar HEAD \| tar -t \| head -1` |
+
+`docker --version` responde com o daemon desligado. Só `docker info` prova que as
+Camadas 2 e 3 são executáveis.
 
 ## Definição de pronto
 
@@ -130,13 +153,28 @@ status não confunda "pulou" com "passou".
 - Invariante nova entra na tabela acima **com** o arquivo onde vive.
 - Toda invariante tem também um teste **adversário**: um que tenta violá-la e
   exige que seja barrada. Teste de caminho feliz não prova fronteira.
+- **O gate local roda o que o CI roda.** A checagem 9 do `check-agent-docs.sh`
+  compara os comandos `npm` do workflow com o `scripts/verify.sh`: o workflow é a
+  fonte, o script é o derivado. Duas listas descrevendo a mesma coisa, sem nada
+  comparando, foi como `npm install` no verify e `npm ci` no CI conviveram — e o
+  CI ficou vermelho sem nenhuma camada local poder ver.
+- **Verificação nova tem caso vizinho.** Depois de escrever um gate, uma trava ou
+  um guarda, construa o caso que ele **deveria** pegar e veja-o pegar — não o caso
+  que motivou escrevê-lo, que já passa por construção. "Toda invariante tem teste
+  adversário" vale para os gates também, e é onde ninguém pensa em aplicar: gate
+  não é código de produção. Nove defeitos desta safra eram verificações que
+  funcionavam no caso de origem e olhavam para a metade errada.
 - O fluxo manual continua funcionando sem `ANTHROPIC_API_KEY`.
 - Nenhum teste aponta para banco fora de `*_test`.
 - O relatório final declara qual camada rodou e qual não rodou, com o motivo.
+- Rota nova que mude estado ou exponha dado entra no `scripts/smoke.sh`.
+- Arquivo novo que a aplicação precise para subir está **rastreado** — a Camada
+  3.5 é o que prova, e a checagem 8 do gate é o que impede a regressão.
 
 ## Risco e revisão
 
 - **Baixo:** texto, documentação, Swagger. Gates automáticos bastam.
 - **Médio:** CRUD, schemas Zod, contratos de resposta. Revisar contrato e teste.
-- **Alto:** migrations, cálculo de aderência, autenticação e **toda a camada de
-  IA**. Revisão humana integral; use plan mode antes de editar.
+- **Alto:** migrations, cálculo de aderência, autenticação, **toda a camada de
+  IA**, e `Dockerfile`/`docker-compose.yml` — a imagem só é exercitada pela
+  Camada 3. Revisão humana integral; use plan mode antes de editar.

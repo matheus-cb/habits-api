@@ -54,21 +54,80 @@ done
 
 # 7. Esta o NotaFlow não tem, e é a que mais custou aqui: invariante declarada
 #    sem teste que a cite é invariante decorativa. O AGENTS.md manda usar o
-#    número no nome do teste — então o número tem de aparecer em tests/.
-#    Sem esta checagem, a tabela cresce e a cobertura não.
+#    número no NOME do teste — então é isso que se verifica.
+#
+#    A primeira versão usava `grep -rqF "$inv" tests/`, e um comentário
+#    `// INV-14: ver adiante` a satisfazia. Provar menção não é provar teste — é
+#    a mesma fraqueza que o guarda de INV-14 existe para não ter. Agora o padrão
+#    exige a forma `it('INV-nn` ou `describe('INV-nn`, com aspas simples ou
+#    duplas, que é a única forma que aparece num relatório de teste.
 if [ -d tests ]; then
-  faltando=""
-  while read -r inv; do
-    grep -rqF "$inv" tests/ || faltando="$faltando $inv"
-  done < <(grep -oE 'INV-[0-9]{2}' AGENTS.md | sort -u)
+  # As DUAS listas derivam do AGENTS.md. A versão anterior derivava só as exigidas
+  # e mantinha `for cliente in INV-20 ... INV-24` literal, embutindo a premissa de
+  # que a faixa dos clientes é para sempre 20–24. Agora a faixa não é regra: é
+  # consequência de qual seção da tabela cada invariante ocupa.
+  invariantes_da_secao() {
+    # Só LINHAS DE TABELA contam, não a seção inteira. Duas iterações erradas
+    # antes desta, ambas encontradas testando o caso vizinho e não o caso de
+    # origem: a primeira resetava a seção só em `###`, e a segunda ainda incluía a
+    # prosa depois da tabela — os parágrafos que explicam INV-21 e INV-22 faziam
+    # essas duas aparecerem também como "herdadas", e uma nota solta ao fim do
+    # arquivo era classificada como herdada em vez de órfã.
+    #
+    # É a tabela que DECLARA de quem a invariante é. Parágrafo é comentário.
+    awk -v alvo="$1" '
+      /^#{2,3} / { dentro = (/^### / && index($0, alvo) > 0) }
+      dentro && /^\| \*\*INV-[0-9][0-9]\*\*/ { print }
+    ' AGENTS.md | grep -oE 'INV-[0-9]{2}' | sort -u || true
+  }
 
-  # INV-20 a INV-24 vivem nos clientes; os testes delas estão nos outros repos.
-  for cliente in INV-20 INV-21 INV-22 INV-23 INV-24; do
-    faltando="${faltando// $cliente/}"
+  todas="$(grep -oE 'INV-[0-9]{2}' AGENTS.md | sort -u)"
+  dos_clientes="$(invariantes_da_secao 'Contrato com os clientes')"
+
+  faltando=""
+  for inv in $todas; do
+    printf '%s\n' "$dos_clientes" | grep -qx "$inv" && continue
+    grep -rqE "(it|test|describe)\\(['\"]$inv" tests/ || faltando="$faltando $inv"
   done
 
   [ -z "$faltando" ] ||
     falhar "invariante sem teste que a cite pelo número:$faltando. Ver 'Definição de pronto' no AGENTS.md."
+fi
+
+# 8. Migração no disco e fora do índice é esquema que só existe numa máquina.
+#    Foi assim que um clone limpo subiu sem nenhuma tabela: a regra do .gitignore
+#    escondia os arquivos, `migrate deploy` respondia "No migration found" e saía
+#    com código 0. Versionar os arquivos existentes fecha o caso; esta checagem
+#    fecha a CLASSE, que é a diferença entre corrigir e contornar.
+if [ -d prisma/migrations ]; then
+  no_disco="$(find prisma/migrations -name 'migration.sql' | wc -l | tr -d ' ')"
+  no_indice="$(git ls-files prisma/migrations | grep -c 'migration\.sql' || true)"
+  [ "$no_disco" = "$no_indice" ] ||
+    falhar "$no_disco migração(ões) no disco, $no_indice no git. Migração não rastreada é esquema que não reproduz."
+fi
+
+# 9. O gate local roda o que o CI roda.
+#
+#    A divergência que motivou isto: o `verify.sh` validava com `npm install`
+#    (permissivo, reconcilia peers) e o CI roda `npm ci` (valida o lockfile,
+#    recusa conflito). O CI do mobile ficou vermelho desde a primeira execução, e
+#    nenhuma das camadas locais podia ver — o comando estava na lista do AGENTS.md
+#    e ausente do script que a executa.
+#
+#    É a mesma forma da checagem 7: dois documentos descrevendo a mesma coisa, e
+#    nada os comparando. Aqui o workflow é a fonte e o verify.sh o derivado.
+#
+#    Só comandos `npm` — `npx` fica de fora porque o CI o usa com argumentos que o
+#    verify legitimamente troca (`prisma migrate deploy` contra `migrate status`
+#    com outro banco). Não cobre ordem nem o que o CI faz fora de `- run:`; cobre
+#    a classe que passou: comando no CI e ausente no gate local.
+if [ -f .github/workflows/quality-gate.yml ] && [ -f scripts/verify.sh ]; then
+  while read -r cmd; do
+    [ -n "$cmd" ] || continue
+    grep -qF "$cmd" scripts/verify.sh ||
+      falhar "o CI roda '$cmd' e o scripts/verify.sh não. Gate local que não roda o do CI não é gate."
+  done < <(grep -oE '^[[:space:]]*- run: npm .*' .github/workflows/quality-gate.yml |
+    sed 's/.*- run: //' | sort -u)
 fi
 
 if [ "$falhas" -gt 0 ]; then

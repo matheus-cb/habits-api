@@ -86,6 +86,8 @@ export type FallbackReason =
   | 'AI_NOT_CONFIGURED'
   | 'AI_UNAVAILABLE'
   | 'AI_REFUSED'
+  /** Resposta cortada por `max_tokens`. O guarda numérico não pega isso. */
+  | 'AI_TRUNCATED'
   | 'AI_NUMBERS_UNVERIFIED'
   | 'AI_EMPTY_RESPONSE';
 

@@ -3,6 +3,15 @@
 
 generator client {
   provider = "prisma-client-js"
+
+  // Sem `binaryTargets` explícito, o Prisma tenta DETECTAR a versão do OpenSSL na
+  // imagem — e erra em Alpine moderno: ele escolhe o engine de OpenSSL 1.1, que
+  // precisa de `libssl.so.1.1`, ausente desde o Alpine 3.19. O container subia e
+  // morria em loop com "Error loading shared library libssl.so.1.1".
+  //
+  // Os dois alvos musl cobrem as duas arquiteturas em que a imagem é construída:
+  // arm64 na estação de trabalho (Apple Silicon) e amd64 no runner do CI.
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x", "linux-musl-arm64-openssl-3.0.x"]
 }
 
 datasource db {

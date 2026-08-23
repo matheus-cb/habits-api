@@ -69,6 +69,18 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx prisma migrate deploy
+      # O banco shadow existe só para o `migrate diff` aplicar as migrações e
+      # comparar com o schema.prisma. Nunca recebe dado de teste.
+      - name: Criar banco shadow
+        run: PGPASSWORD=postgres psql -h localhost -U postgres -c 'CREATE DATABASE habits_shadow'
+      # Fecha a classe que a checagem 8 do gate não alcança: migração rastreada
+      # mas DESATUALIZADA. Um schema.prisma editado sem migração deixa o clone
+      # subir com o esquema antigo, e o erro só aparece na primeira query que
+      # toca a coluna ausente.
+      - name: Drift de esquema
+        env:
+          DATABASE_URL_SHADOW: postgresql://postgres:postgres@localhost:5432/habits_shadow?schema=public
+        run: ./scripts/check-schema-drift.sh
       - run: npm run test:integration
 
   build:
@@ -83,3 +95,42 @@ jobs:
       - run: npm ci
       - run: npx prisma generate
       - run: npm run build
+
+  # Camada 3 — sobe a stack e bate nela por HTTP.
+  #
+  # É a única coisa no gate que prova que a IMAGEM funciona. O Dockerfile deste
+  # repositório produzia um container em loop de reinício (engine do Prisma
+  # incompatível com o OpenSSL da Alpine) e nada percebia, porque nada subia a
+  # stack. Também é onde "funciona sem chave de IA" deixa de ser afirmação sobre
+  # um dublê e passa a ser fato sobre um processo real.
+  smoke:
+    runs-on: ubuntu-latest
+    needs: [camada-1]
+    env:
+      JWT_SECRET: ci-only-secret-with-at-least-32-characters
+      # Ausente de propósito. A stack tem de subir e responder sem provedor de
+      # IA (INV-15), e o smoke verifica `narration.source = deterministic`.
+      ANTHROPIC_API_KEY: ''
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: docker compose config --quiet
+
+      - name: Subir a stack
+        # `--wait` só funciona porque os dois serviços têm healthcheck; sem eles,
+        # `depends_on` espera o container existir, não estar pronto.
+        run: docker compose up --detach --build --wait
+
+      # O smoke vive em scripts/smoke.sh, e não embutido neste YAML, para haver
+      # UMA cópia — rodável aqui e na estação de trabalho, sem duas versões
+      # divergindo em silêncio.
+      - name: Smoke HTTP
+        run: ./scripts/smoke.sh
+
+      - name: Logs dos containers em caso de falha
+        if: failure()
+        run: docker compose logs --no-color --tail 200
+
+      - name: Derrubar a stack
+        if: always()
+        run: docker compose down --volumes --remove-orphans

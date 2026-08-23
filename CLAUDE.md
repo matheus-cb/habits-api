@@ -10,6 +10,10 @@ acima.
   editar.
 - **Referência de estrutura** (aliases de path, rotas, schema do banco) fica em
   `docs/ARQUITETURA.md`, não aqui: é consulta, não regra.
-- **Camada 2 sem Docker:** o daemon não sobe em sandbox de sessão remota. Rode a
-  Camada 1 e declare no relatório que a 2 ficou por executar — não tente
-  contornar com mock de banco.
+- **Camadas 2 e 3 sem Docker:** o daemon não sobe em sandbox de sessão remota, e
+  isso **não tem conserto**. Rode a Camada 1 e declare no relatório quais ficaram
+  por executar — não tente contornar com mock de banco nem com servidor local no
+  lugar da imagem.
+- **A Camada 3 leva minutos.** `docker compose up --build` reconstrói a imagem.
+  Antes de rodá-la, confirme que não vai derrubar uma stack que o usuário esteja
+  usando.

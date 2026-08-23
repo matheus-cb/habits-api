@@ -1,7 +1,7 @@
 {
   "name": "habits-api",
   "version": "1.0.0",
-  "description": "API REST completa para gerenciamento de hábitos com gamificação",
+  "description": "API REST completa para gerenciamento de h\u00e1bitos com gamifica\u00e7\u00e3o",
   "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
@@ -24,8 +24,14 @@
     "verify": "./scripts/verify.sh",
     "check:agent-docs": "./scripts/check-agent-docs.sh",
     "typecheck": "tsc --noEmit",
-    "db:test:create": "docker exec habits-postgres psql -U postgres -c \"CREATE DATABASE habits_test\" || true",
-    "db:test:migrate": "dotenv -e .env.test -- prisma migrate deploy"
+    "db:test:create": "docker exec ${STACK_PREFIX:-habits}-postgres psql -U postgres -c \"CREATE DATABASE habits_test\" -c \"CREATE DATABASE habits_shadow\" || true",
+    "db:test:migrate": "dotenv -e .env.test -- prisma migrate deploy",
+    "smoke": "./scripts/smoke.sh",
+    "stack:up": "docker compose up --detach --build --wait",
+    "stack:down": "docker compose down --volumes --remove-orphans",
+    "stack:logs": "docker compose logs --no-color --tail 200",
+    "verify:repro": "./scripts/verify-repro.sh",
+    "check:schema-drift": "./scripts/check-schema-drift.sh"
   },
   "keywords": [
     "api",

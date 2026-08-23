@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { AnthropicNarrator } from '@/insights/narrator.anthropic';
 import { NarrationFailure } from '@/insights/narrator';
+import { verifyNarration } from '@/insights/narration.guard';
 import { adherenceReport } from './fixtures';
 
 /**
@@ -119,6 +120,30 @@ describe('INV-15 — falha de provedor vira motivo, nunca erro para o usuário',
     await expect(narrator.narrate(report)).rejects.toMatchObject({
       reason: 'AI_EMPTY_RESPONSE',
     });
+  });
+
+  it('INV-15: adversário — resposta truncada por max_tokens vira AI_TRUNCATED', async () => {
+    // O modo de falha mais traiçoeiro da camada: o guarda numérico NÃO pega texto
+    // cortado, porque os números que sobraram são todos legítimos. Sem esta
+    // checagem, uma frase interrompida no meio chegava ao usuário como resumo.
+    const narrator = new AnthropicNarrator(
+      clienteQueResponde({
+        stop_reason: 'max_tokens' as Anthropic.Message['stop_reason'],
+        content: [
+          { type: 'text', text: 'Você cumpriu 8 de 12 dias agendados e a sexta-feira' },
+        ] as unknown as Anthropic.Message['content'],
+      })
+    );
+
+    await expect(narrator.narrate(report)).rejects.toMatchObject({ reason: 'AI_TRUNCATED' });
+  });
+
+  it('INV-15: adversário — o texto truncado passaria pelo guarda numérico', async () => {
+    // Prova de que a checagem de `stop_reason` não é redundante: este mesmo texto
+    // é APROVADO pelo guarda, porque 8 e 12 existem no relatório. Se o
+    // truncamento não fosse verificado, nada mais o pegaria.
+    const truncado = 'Você cumpriu 8 de 12 dias agendados e a sexta-feira';
+    expect(verifyNarration(truncado, report).ok).toBe(true);
   });
 
   it('INV-15: erro de transporte vira AI_UNAVAILABLE', async () => {
