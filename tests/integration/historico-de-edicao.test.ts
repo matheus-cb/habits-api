@@ -1,7 +1,10 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import request from 'supertest';
 import { PrismaClient } from '@prisma/client';
 import { app } from '@/app';
 import { prisma } from '@/config/database';
+import { criarGatewayDeQuery } from '@/mcp/query';
 
 /**
  * INV-31 — recuperável vale para edição, e não só para exclusão.
@@ -250,5 +253,178 @@ describe('INV-31 — a transação, e o que ela protege', () => {
 
     const revisao = await prismaCru.habitRevision.findFirst({ where: { habitId } });
     expect(revisao!.changedVia).toBe('user');
+  });
+});
+
+describe('INV-32 — o purge exporta tudo que o CASCADE destrói', () => {
+  /**
+   * O achado do peer, e a classe que o fecha.
+   *
+   * O purge buscava e exportava apenas check-ins. A FK de `habit_revisions` é
+   * `ON DELETE CASCADE`, então o delete físico apagava o histórico inteiro — que
+   * não estava no JSON e não aparecia na contagem que o operador lê antes de
+   * digitar `--confirmar`.
+   *
+   * A segunda falha é a grave: neste caminho não há allowlist, não há RLS e não
+   * há confirmação de cliente. A única barreira é uma pessoa lendo um resumo, e o
+   * resumo estava incompleto — quem confirmou consentiu com menos do que
+   * aconteceu.
+   *
+   * O gate abaixo é INV-29 aplicado ao purge: enumera as FKs em cascade
+   * apontando para `habits` e exige que cada tabela apareça no export.
+   */
+  const TABELAS_NO_EXPORT = ['checkins', 'habit_revisions'] as const;
+
+  async function filhasEmCascade(): Promise<string[]> {
+    const linhas = await prismaCru.$queryRawUnsafe<{ tabela: string }[]>(`
+      SELECT DISTINCT src.relname AS tabela
+        FROM pg_constraint c
+        JOIN pg_class src ON src.oid = c.conrelid
+        JOIN pg_class alvo ON alvo.oid = c.confrelid
+       WHERE c.contype = 'f'
+         AND c.confdeltype = 'c'
+         AND alvo.relname = 'habits'
+       ORDER BY 1`);
+    return linhas.map((l) => l.tabela);
+  }
+
+  it('INV-32: o enumerador acha as filhas — se não achar, nada abaixo prova nada', async () => {
+    const filhas = await filhasEmCascade();
+
+    expect(filhas).toEqual(expect.arrayContaining(['checkins', 'habit_revisions']));
+  });
+
+  it('INV-32: adversário — toda filha em CASCADE está no export do purge', async () => {
+    const ausentes = (await filhasEmCascade()).filter(
+      (tabela) => !TABELAS_NO_EXPORT.includes(tabela as (typeof TABELAS_NO_EXPORT)[number])
+    );
+
+    // A mensagem carrega o nome porque quem quebrar isto precisa acrescentar a
+    // busca, o campo no JSON, a linha da contagem e a conferência da releitura —
+    // quatro lugares, e o teste é o que impede esquecer algum.
+    expect(ausentes).toEqual([]);
+  });
+
+  it('INV-32: adversário — filha NOVA em cascade reprova o gate', async () => {
+    // O caso vizinho: não o que motivou o gate, e sim o que ele deveria pegar.
+    // Sem isto, o caso acima passa por construção — as duas filhas de hoje estão
+    // na lista, então ele nunca viu o gate acusar nada.
+    await prismaCru.$executeRawUnsafe(`
+      CREATE TABLE "filha_intrusa" (
+        id text PRIMARY KEY,
+        "habitId" text NOT NULL REFERENCES "habits"(id) ON DELETE CASCADE
+      )`);
+
+    try {
+      const ausentes = (await filhasEmCascade()).filter(
+        (tabela) => !TABELAS_NO_EXPORT.includes(tabela as (typeof TABELAS_NO_EXPORT)[number])
+      );
+
+      expect(ausentes).toEqual(['filha_intrusa']);
+    } finally {
+      await prismaCru.$executeRawUnsafe('DROP TABLE "filha_intrusa"');
+    }
+  });
+
+  it('INV-32: o script menciona cada tabela do export na contagem que precede o --confirmar', () => {
+    // A mensagem é a única barreira deste caminho, então ela é verificada como
+    // código. Uma tabela buscada e exportada mas NÃO impressa deixaria o consumo
+    // do operador incompleto do mesmo jeito.
+    const fonte = fs.readFileSync(path.join(__dirname, '..', '..', 'scripts', 'purge.ts'), 'utf8');
+
+    // A âncora é a POSIÇÃO DO DELETE, e não a primeira menção a `--confirmar` —
+    // que é o texto de uso, no topo do arquivo, antes de qualquer contagem. A
+    // primeira versão deste caso usava essa menção e reprovou dizendo que a
+    // contagem não existia. O que ele deve exigir é que as contagens venham antes
+    // da destruição, e o delete é o marco disso.
+    const posicaoDoDelete = fonte.indexOf('prisma.habit.delete');
+    expect(posicaoDoDelete).toBeGreaterThan(0);
+    const antesDoDelete = fonte.slice(0, posicaoDoDelete);
+
+    for (const linha of [/console\.log\(`Check-ins:/, /console\.log\(`Revisões:/]) {
+      expect(antesDoDelete).toMatch(linha);
+    }
+    // E as duas dizem que é sem volta: contagem sem essa palavra informa o número
+    // e não a consequência.
+    expect(antesDoDelete).toMatch(/serão destruídos, sem volta/);
+    expect(antesDoDelete).toMatch(/histórico de edição inteiro, sem volta/);
+  });
+});
+
+describe('INV-31 — a ordem do histórico não empata', () => {
+  it('INV-31: adversário — duas edições no mesmo milissegundo mantêm a ordem', async () => {
+    // `replacedAt` é TIMESTAMP(3): duas edições no mesmo milissegundo empatam, e
+    // "a mais recente" ficaria a critério do Postgres. Um empate não perde dado —
+    // perde a SEQUÊNCIA, e uma sequência com dois eventos trocados parece
+    // completa. É o `deletedAt`-como-marcador-de-lote outra vez, na tabela nova.
+    //
+    // Forçar o empate de verdade é frágil, então o teste o CONSTRÓI: iguala os
+    // timestamps no banco e exige que a rota continue devolvendo na ordem certa.
+    const a = await registrar('hist-empate@example.com');
+    const habitId = await criarHabito(a.token, 'ordem inicial');
+
+    await editar(a.token, habitId, { title: 'segunda versao' });
+    await editar(a.token, habitId, { title: 'terceira versao' });
+
+    const mesmoInstante = new Date();
+    await prismaCru.habitRevision.updateMany({
+      where: { habitId },
+      data: { replacedAt: mesmoInstante },
+    });
+
+    const titulos = (await revisoes(a.token, habitId)).body.data.map(
+      (r: { title: string }) => r.title
+    );
+
+    // Com `orderBy: replacedAt` isto seria indefinido. Com `ordem`, é a ordem de
+    // gravação — 'segunda versao' foi substituída DEPOIS de 'ordem inicial'.
+    expect(titulos).toEqual(['segunda versao', 'ordem inicial']);
+  });
+
+  it('INV-31: `ordem` não sai na resposta — a informação é a ordem do array', async () => {
+    // Expor a coluna convidaria a interface a reordenar por ela, criando um
+    // segundo lugar que decide a sequência. (E `BigInt` não serializa em JSON,
+    // que foi como isto apareceu.)
+    const a = await registrar('hist-sem-ordem@example.com');
+    const habitId = await criarHabito(a.token, 'titulo qualquer');
+    await editar(a.token, habitId, { title: 'outro titulo' });
+
+    const item = (await revisoes(a.token, habitId)).body.data[0];
+
+    expect(item.ordem).toBeUndefined();
+    expect(item.replacedAt).toBeDefined();
+  });
+});
+
+describe('INV-27 — a política de revisões não herda restrição futura em silêncio', () => {
+  it('INV-27: revisão de hábito APAGADO continua legível pela primitiva', async () => {
+    // O acoplamento que o peer apontou: a política de `habit_revisions` faz
+    // `EXISTS` em `habits`, e essa subquery está ela mesma sujeita à RLS de
+    // `habits`. Hoje é redundância inofensiva. Se alguém acrescentar
+    // `AND h."deletedAt" IS NULL` à política de habits — o que soa razoável —, as
+    // revisões de hábitos apagados desaparecem em silêncio.
+    //
+    // E é exatamente o caso que o histórico existe para servir: recuperar de um
+    // erro num hábito que a pessoa apagou depois. Este teste é o que faz a
+    // consequência aparecer antes do merge, em vez de um comentário pedindo
+    // cuidado.
+    const a = await registrar('hist-rls-apagado@example.com');
+    const habitId = await criarHabito(a.token, 'sera apagado depois');
+    await editar(a.token, habitId, { title: 'editado antes de apagar' });
+    await request(app).delete(`/api/v1/habits/${habitId}`).set('Authorization', `Bearer ${a.token}`);
+
+    const gateway = criarGatewayDeQuery()!;
+    try {
+      const resultado = await gateway.executar(
+        a.userId,
+        `SELECT title FROM habit_revisions WHERE "habitId" = '${habitId}'`
+      );
+
+      expect(resultado.linhas.map((l) => (l as { title: string }).title)).toEqual([
+        'sera apagado depois',
+      ]);
+    } finally {
+      await gateway.encerrar();
+    }
   });
 });

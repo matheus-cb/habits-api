@@ -62,8 +62,18 @@ export class HabitsService {
    */
   async getRevisions(habitId: string, userId: string) {
     const habit = await this.getHabitById(habitId, userId);
+    const revisoes = await this.habitsRepository.findRevisions(habit.id);
 
-    return this.habitsRepository.findRevisions(habit.id);
+    // `ordem` NÃO sai na resposta, e não é só porque `BigInt` não serializa em
+    // JSON — o `res.json` estoura com `Do not know how to serialize a BigInt`, e
+    // foi assim que descobri. O motivo de manter fora depois de descobrir é
+    // outro: `ordem` é a chave de ordenação interna, e a informação que o cliente
+    // precisa é a ORDEM DO ARRAY. Expor a coluna convidaria a interface a
+    // reordenar por ela, criando um segundo lugar que decide a sequência.
+    //
+    // O backup do purge inclui `ordem`, e ali é o oposto: um backup que não
+    // preserva a sequência não restaura o histórico.
+    return revisoes.map(({ ordem: _ordem, ...revisao }) => revisao);
   }
 
   /**

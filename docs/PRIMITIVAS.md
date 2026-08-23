@@ -161,10 +161,20 @@ cliente abusivo, e **não** é defesa contra abuso distribuído.
   escreveu sem dizer o que ele consultou. Passa a ser obrigatório se houver
   superfície de chat no dashboard.
 - **Retenção do histórico.** `habit_revisions` cresce uma linha por edição, sem
-  limite e sem política de descarte. Para uso próprio isso não é problema; num
-  hábito editado diariamente por anos, é. O corte não é óbvio — descartar por
-  idade apaga justamente o que se quer recuperar de um erro antigo — então fica
-  declarado em vez de resolvido por um número arbitrário.
+  política de descarte — e a ausência é uma **consequência medida**, não uma
+  escolha por gosto: o crescimento tem teto porque a taxa de edição tem teto.
+  Uma linha por edição, e edição passa pelo limite de INV-30. Antes dele, um
+  assistente em laço geraria milhões de revisões e retenção seria bloqueante;
+  depois dele, o pior caso é limitado por chamadas por minuto.
+
+  A primeira redação disto dizia "descartar por idade apaga justamente o que se
+  quer recuperar", que é argumento **contra uma solução específica** e não a favor
+  de não haver nenhuma — o formato que em seis meses se lê como racionalização.
+
+  E se doer, o corte certo não é idade nem contagem: é **revisão idêntica à
+  anterior**. Um `PUT` que não mudou nada grava uma linha que não significa nada.
+  Dedupe, não expiração — preserva a propriedade de recuperar de erro antigo, que
+  é a que não se quer perder.
 - **`paths` do OpenAPI.** Dívida declarada. O conserto é derivar da mesma fonte
   que `habits://contratos`.
 - **Teto de taxa distribuído.** Ver acima: hoje é por processo.

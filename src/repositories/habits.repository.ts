@@ -79,11 +79,18 @@ export class HabitsRepository {
     });
   }
 
-  /** Da mais recente para a mais antiga: a primeira é o que havia antes da última edição. */
+  /**
+   * Da mais recente para a mais antiga: a primeira é o que havia antes da última
+   * edição.
+   *
+   * Ordena por `ordem`, não por `replacedAt`. O timestamp tem precisão de
+   * milissegundo e empata — e histórico é lido por ORDEM, então um empate não
+   * perde dado, perde a sequência, e a sequência errada parece completa.
+   */
   async findRevisions(habitId: string): Promise<HabitRevision[]> {
     return prisma.habitRevision.findMany({
       where: { habitId },
-      orderBy: { replacedAt: 'desc' },
+      orderBy: { ordem: 'desc' },
     });
   }
 

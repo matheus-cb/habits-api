@@ -37,25 +37,35 @@ import { Prisma } from '@prisma/client';
  * apagar fisicamente por este client falha, e o único caminho físico é
  * `scripts/purge.ts`, que usa client próprio de propósito.
  */
-const MODELOS_COM_SOFT_DELETE = new Set(['Habit', 'Checkin']);
+/**
+ * As duas políticas de escrita desta aplicação, e o que as une.
+ *
+ * **Nenhuma das duas admite delete físico pela aplicação — por razões opostas:**
+ * a reversível porque o dado volta, a imutável porque o dado nunca muda. Nomear
+ * pela política e não pela mecânica é o que faz essa frase se ler sem comentário;
+ * o nome anterior (`MODELOS_COM_SOFT_DELETE`) descrevia o COMO, e a segunda lista
+ * descrevia o como do lado oposto — obrigando quem lesse a reconstituir por que
+ * uma tabela está numa e não na outra.
+ */
+const MODELOS_REVERSIVEIS = new Set(['Habit', 'Checkin']);
 
 /**
- * Histórico: não tem soft delete, e também não pode ser apagado.
+ * Append-only: a linha nasce e não muda mais.
  *
- * `HabitRevision` não entra em `MODELOS_COM_SOFT_DELETE` porque não faz sentido —
- * uma revisão apagada logicamente seria uma versão que existiu, deixou de
- * aparecer, e continua no banco: três estados para uma tabela cujo propósito é
- * ter dois.
+ * `HabitRevision` não é reversível porque não há o que reverter — uma revisão
+ * apagada logicamente seria uma versão que existiu, deixou de aparecer e
+ * continua no banco: três estados numa tabela cujo propósito é ter dois.
  *
- * Mas ela precisa da OUTRA metade da proteção. Sem esta lista, `revision.delete`
- * seria permitido pelo primeiro `if` da extensão — que devolve `query(args)` para
- * todo modelo fora do conjunto de soft delete. Histórico que a aplicação pode
- * apagar não é histórico, e o caminho até ele passaria pela primitiva `request`
- * no dia em que alguém expusesse uma rota de limpeza.
+ * Ela precisa da outra metade da proteção. Sem esta lista, `revision.delete`
+ * passaria pelo primeiro `if` da extensão, que devolve `query(args)` para todo
+ * modelo fora da lista de reversíveis. Histórico que a aplicação apaga não é
+ * histórico, e o caminho até ele passaria pela primitiva `request` no dia em que
+ * alguém expusesse uma rota de limpeza.
  *
- * O caminho físico continua sendo o `CASCADE` do purge, que usa client próprio.
+ * O caminho físico continua sendo o `CASCADE` do purge, que usa client próprio —
+ * e o purge exporta as revisões antes, o que INV-32 é o gate de garantir.
  */
-const MODELOS_SEM_DELETE_FISICO = new Set(['HabitRevision']);
+const MODELOS_IMUTAVEIS = new Set(['HabitRevision']);
 
 /** Alcançam linha apagada e a modificam. Filtradas, não proibidas. */
 const OPERACOES_DE_ESCRITA_EM_LOTE = new Set(['updateMany']);
@@ -79,14 +89,14 @@ export const softDelete = Prisma.defineExtension({
   query: {
     $allModels: {
       async $allOperations({ model, operation, args, query }) {
-        if (MODELOS_SEM_DELETE_FISICO.has(model) && OPERACOES_DE_DELETE_FISICO.has(operation)) {
+        if (MODELOS_IMUTAVEIS.has(model) && OPERACOES_DE_DELETE_FISICO.has(operation)) {
           throw new Error(
             `${model}.${operation} não é permitido: histórico que a aplicação apaga não é ` +
               'histórico. A remoção só acontece por CASCADE em `npm run purge`.'
           );
         }
 
-        if (!MODELOS_COM_SOFT_DELETE.has(model)) {
+        if (!MODELOS_REVERSIVEIS.has(model)) {
           return query(args);
         }
 

@@ -88,8 +88,16 @@ model HabitRevision {
   title         String
   description   String?
   scheduledDays Int[]      @default([])
-  /// Quando esta versão parou de ser a corrente.
+  /// Quando esta versão parou de ser a corrente. É o fato temporal, e NÃO a
+  /// ordem: `TIMESTAMP(3)` empata no mesmo milissegundo. Ver `ordem`.
   replacedAt    DateTime   @default(now())
+  /// A ordem de leitura do histórico, monotônica por construção.
+  ///
+  /// Separada de `replacedAt` pela mesma razão que `deleteBatchId` é separado de
+  /// `deletedAt`: timestamp é fato temporal, não identidade nem sequência. Duas
+  /// edições no mesmo milissegundo empatam em `replacedAt`, e "a mais recente"
+  /// ficaria indefinida — um histórico com dois eventos trocados parece completo.
+  ordem         BigInt     @default(autoincrement())
   /// Quem fez a edição que substituiu esta versão. Mesma regra de `createdVia`:
   /// vem do servidor, nunca do corpo.
   changedVia    CreatedVia @default(user)
@@ -97,6 +105,7 @@ model HabitRevision {
   habit Habit @relation(fields: [habitId], references: [id], onDelete: Cascade)
 
   @@index([habitId, replacedAt])
+  @@index([habitId, ordem(sort: Desc)])
   @@map("habit_revisions")
 }
 
