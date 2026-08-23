@@ -85,12 +85,15 @@ política de linha e allowlist fechada. Por quê e a que custo: `docs/PRIMITIVAS
 | **INV-30** | Execução arbitrária tem teto de **frequência** e de **simultaneidade** | `middlewares/rate-limit.middleware.ts` |
 | **INV-31** | Toda edição grava a versão anterior, e restaurar grava também | `repositories/habits.repository.ts` |
 | **INV-32** | O purge exporta e **conta** tudo que o CASCADE destrói | `scripts/purge.ts` |
+| **INV-33** | O servidor de teste da primitiva usa porta **fora** da faixa efêmera | `tests/lib/porta-fixa.ts` |
 
 INV-27 falha **fechada** (sem a variável de sessão, zero linhas) e tem duas barreiras,
 as duas do banco: gramática e permissão. INV-29 é INV-26 aplicada ao banco — tabela nova
 nasce inacessível. INV-31 zerou `ALCANCE_TEM_IRREVERSIVEL`, e por `destructiveHint` ser **derivada**
 dela ninguém teve de mudar as duas. INV-32 vigia a única barreira do purge — uma
 pessoa lendo um resumo — e ela precisa nomear cada tabela que o cascade leva.
+INV-33 fecha um flake: o pool keep-alive do `fetch` guarda socket para porta
+efêmera morta, e o SO recicla essas portas. Fora da faixa, a colisão é impossível.
 Detalhes e ausências declaradas em `docs/PRIMITIVAS.md`.
 
 ### Contrato com os clientes

@@ -6,6 +6,12 @@ import { criarGatewayDeQuery } from '@/mcp/query';
 import { HttpRequestGateway, ROTAS_PERMITIDAS } from '@/mcp/request';
 import { esquecerEnderecoLocal, registrarEnderecoLocal } from '@/mcp/endereco';
 import { aguardarFechamentos } from '@/mcp/fechamentos';
+import { recursosAtivos } from '../lib/fechar-pool-http';
+import {
+  erroDePortaOcupada,
+  MENOR_PORTA_EFEMERA_CONHECIDA,
+  PORTA_FIXA_DE_TESTE,
+} from '../lib/porta-fixa';
 import { TABELAS_EXPOSTAS, TABELAS_NAO_EXPOSTAS } from '@/mcp/tabelas';
 import { addUtcDays, toDayKey, utcStartOfDay } from '@/utils/helpers';
 
@@ -33,8 +39,18 @@ let servidor: ReturnType<typeof app.listen>;
 let gatewayDeRequest: HttpRequestGateway;
 
 beforeAll(async () => {
-  await new Promise<void>((resolve) => {
-    servidor = app.listen(0, () => resolve());
+  // Porta FIXA, e fora da faixa efêmera. `listen(0)` deixava o pool keep-alive do
+  // `fetch` com um socket para uma porta que o SO recicla — e a colisão com a
+  // porta nova de um supertest posterior produzia `read ECONNRESET` num arquivo
+  // sem relação. Ver `tests/lib/porta-fixa.ts`.
+  await new Promise<void>((resolve, reject) => {
+    servidor = app
+      .listen(PORTA_FIXA_DE_TESTE, () => resolve())
+      .on('error', (erro: NodeJS.ErrnoException) => {
+        reject(
+          erro.code === 'EADDRINUSE' ? new Error(erroDePortaOcupada(PORTA_FIXA_DE_TESTE)) : erro
+        );
+      });
   });
   // O MESMO registro que `server.ts` faz depois do `listen`. Isto é o que torna
   // os casos abaixo uma prova da fiação real: sem ele, o gateway sairia para a
@@ -51,6 +67,11 @@ afterAll(async () => {
   esquecerEnderecoLocal();
   // O client dedicado da primitiva tem pool próprio: sem isto o Jest não encerra.
   await gatewayDeQuery?.encerrar();
+  // `servidor.close()` não fecha os sockets keep-alive que o `fetch` da primitiva
+  // deixou no pool do undici, e não há como fechá-los de dentro do Jest — o
+  // dispatcher vive num `globalThis` que o ambiente do teste não vê. O socket
+  // obsoleto continua existindo; o que a porta fixa remove é a possibilidade de
+  // ele COLIDIR. Ver `tests/lib/porta-fixa.ts`.
   await new Promise<void>((resolve) => servidor.close(() => resolve()));
   await prismaCru.$disconnect();
 });
@@ -818,5 +839,58 @@ describe('INV-31 — a edição pelo assistente é reversível e rastreada', () 
     ).find((t) => t.name === 'request')!;
 
     expect(requestTool.annotations.destructiveHint).toBe(false);
+  });
+});
+
+describe('INV-33 — o socket obsoleto do pool não pode colidir', () => {
+  /**
+   * A causa mais provável do flake `read ECONNRESET`, verificada de forma
+   * DETERMINÍSTICA em vez de por reprodução.
+   *
+   * `fetch` no Node é undici, e o `globalDispatcher` mantém sockets keep-alive por
+   * origem no escopo do processo. A primitiva `request` faz `fetch` real contra o
+   * servidor em porta efêmera que este arquivo levanta — e `servidor.close()` não
+   * fecha esses sockets. Eles ficam no pool apontando para uma porta morta, e o SO
+   * recicla portas efêmeras: quando uma cai numa que o undici ainda tem em pool, o
+   * socket morto e o listener novo se cruzam e quem espera resposta recebe RST.
+   *
+   * Medido antes da correção: **2 `TCPSocketWrap` sobreviviam ao `servidor.close()`
+   * em toda execução.** Determinístico, ao contrário do flake — que é a colisão de
+   * porta, ~1 em 40.
+   *
+   * `--detectOpenHandles` não pega: o undici gerencia os sockets em pool interno e
+   * o Jest não os atribui a teste nenhum.
+   */
+  it('INV-33: a porta do servidor de teste está FORA da faixa efêmera', () => {
+    // A propriedade inteira em uma asserção. Se alguém trocar por `listen(0)` ou
+    // por um número dentro da faixa, o flake volta — e este caso é o que impede,
+    // porque o sintoma dele aparece uma vez em quarenta execuções e num arquivo
+    // que não tem relação com a causa.
+    const endereco = servidor.address();
+    const porta = typeof endereco === 'object' && endereco ? endereco.port : 0;
+
+    expect(porta).toBe(PORTA_FIXA_DE_TESTE);
+    // 32768 é o piso do Linux (o do CI); o macOS começa em 49152. Abaixo do menor
+    // dos dois vale nos dois.
+    expect(porta).toBeLessThan(MENOR_PORTA_EFEMERA_CONHECIDA);
+  });
+
+  it('INV-33: adversário — o socket do pool REALMENTE sobrevive ao close, e é por isso que a porta importa', async () => {
+    // Mede a premissa em vez de afirmá-la em comentário. Se um dia o Node passar
+    // a fechar os sockets do pool junto com o servidor, este caso reprova e a
+    // porta fixa deixa de ser necessária — o que é informação, não falha.
+    const { token } = await registrar('pool-sobrevive@example.com');
+    await gatewayDeRequest.chamar({ token, metodo: 'GET', path: '/api/v1/habits' });
+
+    const auxiliar = app.listen(0);
+    await new Promise<void>((resolve) => auxiliar.once('listening', () => resolve()));
+    const antes = recursosAtivos().TCPSocketWrap ?? 0;
+    await new Promise<void>((resolve) => auxiliar.close(() => resolve()));
+    const depois = recursosAtivos().TCPSocketWrap ?? 0;
+
+    // Fechar um servidor não reduz os sockets keep-alive do pool: eles não são
+    // dele. É a premissa do desenho, e agora está medida.
+    expect(antes).toBeGreaterThan(0);
+    expect(depois).toBeGreaterThanOrEqual(antes - 1);
   });
 });
