@@ -27,7 +27,29 @@ END
 $$;
 
 GRANT pg_read_all_data TO habits_readonly;
-GRANT CONNECT ON DATABASE habits TO habits_readonly;
+-- `current_database()` e não o nome literal.
+--
+-- Esta linha era `GRANT CONNECT ON DATABASE habits`, e o pressuposto exato — que
+-- vale ser dito com precisão — não era "estamos conectados a `habits`": era
+-- **"existe um banco chamado `habits` neste servidor"**. `GRANT ... ON DATABASE`
+-- não exige conexão com o banco alvo, só que ele exista.
+--
+-- Por isso a Camada 2, que roda contra `habits_test`, passava: no meu Postgres
+-- local os dois bancos existem no mesmo servidor. No serviço do CI existe só o de
+-- teste, e a primeira execução reprovou com `database "habits" does not exist`.
+--
+-- É o quarto defeito que só o CI podia ver, e o mesmo formato dos três anteriores
+-- (`npm install` contra `npm ci`, migrações fora do git, peers do Expo): a
+-- verificação local rodava num ambiente onde o pressuposto era verdadeiro.
+--
+-- `GRANT ... ON DATABASE` não aceita parâmetro, então vai por SQL dinâmico.
+-- `%I` e não `%s`: cita o identificador, o que importa se o nome tiver maiúscula
+-- ou hífen — `habits-test` sem aspas é erro de sintaxe.
+DO $$
+BEGIN
+  EXECUTE format('GRANT CONNECT ON DATABASE %I TO habits_readonly', current_database());
+END
+$$;
 GRANT USAGE ON SCHEMA public TO habits_readonly;
 
 -- Teto de tempo no próprio role: uma query pesada não derruba a API. Guardião

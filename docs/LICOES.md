@@ -29,6 +29,16 @@ teste que confirmava o pressuposto de quem o escreveu.
   contá-lo na tela que precede o `--confirmar`. A mesma omissão aparecia três vezes
   no mesmo arquivo, cada uma com sua lista.
 - **`pg_read_all_data`** dava à role somente-leitura acesso a toda tabela futura.
+- **Três variáveis foram para o `.env` e não para o `docker-compose.yml`.** Na
+  imagem o Zod caía nos defaults, e quem apertasse o teto de custo do assistente
+  veria o número novo no arquivo e o comportamento antigo rodando — divergência
+  silenciosa entre o que se configura e o que executa. O gate de INV-37 achou
+  outras duas que faltavam desde antes: `CORS_ORIGIN` e `AI_TIMEOUT_MS`.
+- **`GRANT CONNECT ON DATABASE habits`** com o nome literal numa migração. O
+  pressuposto exato não era "estamos conectados a `habits`" — era **"existe um
+  banco chamado `habits` neste servidor"**, e `GRANT ... ON DATABASE` não exige
+  conexão com o alvo. Por isso a Camada 2 passava contra `habits_test`: no
+  Postgres local os dois bancos coexistem. No serviço do CI existe só o de teste.
 
 ## Regra 1 — verificação nova tem caso vizinho
 

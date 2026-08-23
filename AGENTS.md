@@ -108,12 +108,13 @@ prompt. Detalhes em `docs/ASSISTENTE.md`.
 | **INV-34** | Leitura executa; escrita **para** e vira ação pendente que só a pessoa converte | `assistant/assistant.service.ts` |
 | **INV-35** | Toda chamada ao modelo é registrada — tokens, duração, desfecho; **nunca** conteúdo | `prisma/schema.prisma` → `AiCall` |
 | **INV-36** | Teto diário de tokens recusa **antes** de chamar o modelo | `assistant/orcamento.ts` |
+| **INV-37** | Variável que o `env.ts` lê chega ao container, com o **mesmo** default | `docker-compose.yml` |
 
 INV-34 confere a allowlist duas vezes, e a que conta é a da **aprovação**: entre
 propor e aprovar passam minutos, e o que vale é a lista do momento da execução.
-INV-35 é a auditoria que `docs/PRIMITIVAS.md` declarava ausente — ela deixou de ser
-opcional no dia em que houve chat, porque um laço de ferramentas gasta dinheiro
-real. As rotas do próprio assistente estão **negadas** na allowlist: recursão.
+INV-35 é a auditoria que `docs/PRIMITIVAS.md` declarava ausente. As rotas do próprio
+assistente estão **negadas** na allowlist: recursão. INV-37 nasceu de três variáveis
+que chegaram ao `.env` e não ao compose — ver `docs/LICOES.md`.
 
 ### Contrato com os clientes
 
