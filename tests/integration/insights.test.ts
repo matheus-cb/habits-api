@@ -2,6 +2,7 @@ import request from 'supertest';
 import { app } from '@/app';
 import { prisma } from '@/config/database';
 import { addUtcDays, toDayKey, utcStartOfDay, utcWeekday } from '@/utils/helpers';
+import { aguardarFechamentos } from '@/mcp/fechamentos';
 
 /**
  * Camada 2 — bate no app inteiro contra PostgreSQL real.
@@ -363,4 +364,10 @@ describe('INV-17 — o endpoint MCP é somente leitura e autenticado', () => {
 
     expect(resposta.status).toBe(405);
   });
+});
+
+// Mesmo motivo do `primitivas-mcp.test.ts`: este arquivo também bate em `/mcp`, e
+// os fechamentos disparados aqui completariam no meio do próximo.
+afterAll(async () => {
+  await aguardarFechamentos();
 });

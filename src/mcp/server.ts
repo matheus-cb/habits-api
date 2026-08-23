@@ -7,6 +7,7 @@ import { logger } from '@/utils/logger';
 import { swaggerDocument } from '@/docs/swagger';
 import { createHabitsGateway, ReadOnlyHabitsGateway } from './gateway';
 import { registerReadOnlyTools } from './tools';
+import { registrarFechamento } from './fechamentos';
 import { registrarPrimitivas, registrarRecursos } from './primitivas';
 import { criarGatewayDeQuery, GatewayDeQuery } from './query';
 import { GatewayDeRequest, HttpRequestGateway } from './request';
@@ -96,9 +97,24 @@ export function createMcpRouter(
 
     // Fechar os dois quando a resposta termina, inclusive em erro ou desconexão
     // do cliente — sem isto cada chamada deixa um servidor MCP pendurado.
+    //
+    // O `close` não pode ser aguardado aqui: o handler de `res.on('close')` é
+    // síncrono e a requisição já terminou. Em produção isso é correto e não tem
+    // consequência — o processo é longo e o fechamento completa em milissegundos.
+    //
+    // Em TESTE é diferente, e é por isso que as promessas são registradas. Com
+    // `--runInBand` a suíte inteira roda num processo, e um `close` disparado no
+    // fim de um arquivo completa no meio do seguinte — mexendo em socket ou
+    // conexão enquanto outro teste usa a rede. `--detectOpenHandles` NÃO vê isso:
+    // ele relata o que está aberto quando a suíte termina, e trabalho que dispara
+    // e completa no meio não está aberto no fim.
+    //
+    // `aguardarFechamentos()` existe para o teardown poder esperar. Não muda o
+    // comportamento de produção: lá ninguém chama.
     res.on('close', () => {
-      void transport.close();
-      void server.close();
+      registrarFechamento(
+        Promise.allSettled([transport.close(), server.close()]).then(() => undefined)
+      );
     });
 
     try {

@@ -5,6 +5,7 @@ import { prisma } from '@/config/database';
 import { criarGatewayDeQuery } from '@/mcp/query';
 import { HttpRequestGateway, ROTAS_PERMITIDAS } from '@/mcp/request';
 import { esquecerEnderecoLocal, registrarEnderecoLocal } from '@/mcp/endereco';
+import { aguardarFechamentos } from '@/mcp/fechamentos';
 import { TABELAS_EXPOSTAS, TABELAS_NAO_EXPOSTAS } from '@/mcp/tabelas';
 import { addUtcDays, toDayKey, utcStartOfDay } from '@/utils/helpers';
 
@@ -43,6 +44,10 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  // Drena os fechamentos que o endpoint MCP dispara sem aguardar. Sem isto eles
+  // completam no meio do arquivo SEGUINTE — e `--detectOpenHandles` não os vê,
+  // porque nada fica aberto no fim. Ver `src/mcp/fechamentos.ts`.
+  await aguardarFechamentos();
   esquecerEnderecoLocal();
   // O client dedicado da primitiva tem pool próprio: sem isto o Jest não encerra.
   await gatewayDeQuery?.encerrar();

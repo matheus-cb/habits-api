@@ -135,6 +135,7 @@ npm run docker:up
 npm run db:test:create && npm run db:test:migrate
 npm run check:schema-drift    # migrações versionadas == schema.prisma?
 npm run test:integration
+npm run test:integration:tz   # a MESMA suíte num fuso 17h deslocado
 ```
 
 **Camada 3 — exige a stack de pé.** Sobe a imagem e bate nela por HTTP. É a única
@@ -177,10 +178,12 @@ Ferramentas e versões exigidas: `docs/FERRAMENTAS.md`.
   guarda, construa o caso que ele **deveria** pegar e veja-o pegar — não o caso que o
   motivou, que já passa por construção. Vale para os gates, e é onde ninguém pensa em
   aplicar. Onze defeitos desta safra olhavam para a metade errada.
-- **Asserção sobre recusa exige a RAZÃO da recusa.** `isError`, "lançou" ou "não é 200"
-  são satisfeitos pela ausência do que se queria testar: uma asserção sobre allowlist
-  passou verde recebendo `Tool request not found`. Verificação que falha por ausência é
-  pior que nenhuma — produz evidência positiva.
+- **Ancore em sumário, nunca em substring de saída livre.** Duas vezes nesta safra
+  uma asserção casou com a mensagem errada: `isError` satisfeito por
+  `Tool request not found` em vez de pela allowlist, e `grep "failed"` casando com
+  `Raw query failed` dos testes adversários — este reportou 25 falhas em 25
+  execuções verdes. Asserção sobre recusa exige a RAZÃO da recusa, e contagem de
+  falha exige a linha de sumário (`^Tests: +N failed`).
 - **Filtre a exibição, nunca a captura.** `cmd 2>&1 | tee log | grep …`, e não
   `cmd | grep …`. Um flake ficou sem diagnóstico porque o `grep` do turno descartou o
   NOME do teste que falhou; a evidência não estava mais disponível para ninguém olhar.

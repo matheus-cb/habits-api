@@ -76,6 +76,20 @@ else
   # não é o que o código espera, e a falha aparece disfarçada de bug de domínio.
   passo ./scripts/check-schema-drift.sh
   passo npm run test:integration
+  # A MESMA suíte com o fuso deslocado 17 horas do local.
+  #
+  # O servidor resolve o dia em UTC (INV-04) e vários testes montam datas com
+  # `new Date()` e aritmética LOCAL. Hoje isso é seguro — eles comparam instantes
+  # absolutos derivados da mesma base, não chaves de dia construídas à mão — e
+  # verifiquei sob UTC+14 e UTC−12. Mas a segurança é uma propriedade de COMO os
+  # testes estão escritos, não do desenho, e o próximo teste escrito com data
+  # relativa pode não ter.
+  #
+  # O defeito que esta safra corrigiu no servidor era exatamente isto: dia
+  # resolvido em horário local contra coluna `@db.Date` que o Prisma devolve em
+  # UTC — invisível em UTC−3. O servidor foi corrigido; rodar a suíte num fuso
+  # deslocado é o que impede a suíte de herdar a convenção antiga sem ninguém ver.
+  passo npm run test:integration:tz
 fi
 
 echo ""
