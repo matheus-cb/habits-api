@@ -958,3 +958,75 @@ describe('INV-33 — o socket obsoleto do pool não pode colidir', () => {
     expect(depois).toBeGreaterThanOrEqual(antes - 1);
   });
 });
+
+describe('INV-26 — o corpo aceita objeto E string JSON', () => {
+  /**
+   * O defeito que só apareceu ao exercitar o MCP pelo CLI do Claude Code.
+   *
+   * O modelo passou `corpo` como STRING contendo JSON, o gateway fez
+   * `JSON.stringify` de novo, e a API recebeu JSON duplamente codificado — o
+   * `body-parser` estourou e o cliente viu **500 Internal server error**.
+   *
+   * Nenhum teste pegou porque eu escrevi todos passando objeto. É o caso de
+   * origem, outra vez: eu testei a forma que eu tinha em mente.
+   */
+  it('INV-26: corpo como OBJETO funciona', async () => {
+    const a = await registrar('corpo-objeto@example.com');
+
+    const resposta = await gatewayDeRequest.chamar({
+      token: a.token,
+      metodo: 'POST',
+      path: '/api/v1/habits',
+      corpo: { title: 'Vindo como objeto', scheduledDays: [1] },
+    });
+
+    expect(resposta.status).toBe(201);
+  });
+
+  it('INV-26: adversário — corpo como STRING JSON também funciona, sem 500', async () => {
+    // Antes da correção isto era 500. Agora é 201, e o hábito nasce igual.
+    const a = await registrar('corpo-string@example.com');
+
+    const resposta = await gatewayDeRequest.chamar({
+      token: a.token,
+      metodo: 'POST',
+      path: '/api/v1/habits',
+      corpo: JSON.stringify({ title: 'Vindo como string', scheduledDays: [2] }),
+    });
+
+    expect(resposta.status).toBe(201);
+    expect((resposta.corpo as { data: { title: string } }).data.title).toBe('Vindo como string');
+  });
+
+  it('INV-26: adversário — string que NÃO é JSON dá erro legível, não 500', async () => {
+    // O modelo precisa de um erro que dê para corrigir. `Internal server error`
+    // não diz nada e ele tenta de novo igual.
+    const a = await registrar('corpo-invalido@example.com');
+
+    await expect(
+      gatewayDeRequest.chamar({
+        token: a.token,
+        metodo: 'POST',
+        path: '/api/v1/habits',
+        corpo: 'isso não é json',
+      })
+    ).rejects.toThrow(/não é JSON válido/);
+  });
+
+  it('INV-26: string vazia é ausência de corpo, não corpo vazio', async () => {
+    // `POST .../restore` não pede corpo. Uma string vazia serializada como `""`
+    // faria o `body-parser` receber JSON inválido.
+    const a = await registrar('corpo-vazio@example.com');
+    const habitId = await criarHabito(a.token, 'Vai e volta pelo corpo vazio');
+    await request(app).delete(`/api/v1/habits/${habitId}`).set('Authorization', `Bearer ${a.token}`);
+
+    const resposta = await gatewayDeRequest.chamar({
+      token: a.token,
+      metodo: 'POST',
+      path: `/api/v1/habits/${habitId}/restore`,
+      corpo: '   ',
+    });
+
+    expect(resposta.status).toBe(200);
+  });
+});

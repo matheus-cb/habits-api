@@ -399,7 +399,7 @@ export class HttpRequestGateway implements GatewayDeRequest {
       );
     }
 
-    const corpoSerializado = corpo === undefined ? undefined : JSON.stringify(corpo);
+    const corpoSerializado = serializarCorpo(corpo);
     if (corpoSerializado && corpoSerializado.length > TAMANHO_MAXIMO_DO_CORPO) {
       throw new BadRequestError('Corpo acima de 16 KB.');
     }
@@ -497,6 +497,59 @@ export class HttpRequestGateway implements GatewayDeRequest {
 function ehFalhaDeConexao(erro: unknown): boolean {
   const causa = (erro as { cause?: { code?: string } } | undefined)?.cause;
   return causa?.code === 'ECONNRESET' || causa?.code === 'ECONNREFUSED' || causa?.code === 'EPIPE';
+}
+
+/**
+ * Serializa o corpo, aceitando objeto **ou** string já em JSON.
+ *
+ * ## O defeito que produziu isto
+ *
+ * A versão anterior fazia `JSON.stringify(corpo)` sempre. Um modelo que passasse
+ * `corpo` como STRING contendo JSON — `'{"title":"x"}'` em vez de
+ * `{title:'x'}` — produzia `"\"{\\\"title\\\":...}\""`: JSON duplamente
+ * codificado. O `body-parser` da API estourava com `SyntaxError` e o cliente
+ * recebia **500 Internal server error**.
+ *
+ * Três coisas erradas nisso, em ordem de gravidade:
+ *
+ * 1. **O 500 é a resposta errada.** Entrada malformada de ferramenta é problema
+ *    do chamador, e ele precisa de um erro que dê para corrigir. `Internal server
+ *    error` não diz nada, e o modelo tenta de novo igual.
+ * 2. **É o caso comum, não o excepcional.** Modelo passar JSON como string é
+ *    frequente — o esquema declara `corpo` como objeto e o modelo às vezes
+ *    serializa por conta própria.
+ * 3. **Foi encontrado por acidente.** Só apareceu ao exercitar o MCP pelo CLI do
+ *    Claude Code; nenhum dos testes passava string, porque eu escrevi todos
+ *    passando objeto — o caso de origem, outra vez.
+ *
+ * ## Por que aceitar a string em vez de recusar
+ *
+ * Recusar seria defensável e é pior na prática: o modelo receberia 400, teria de
+ * entender a distinção entre objeto e string JSON, e gastaria uma volta. Aceitar
+ * as duas formas custa três linhas e nenhuma ambiguidade — string que **não** é
+ * JSON válido continua sendo 400, com a mensagem dizendo o que fazer.
+ */
+function serializarCorpo(corpo: unknown): string | undefined {
+  if (corpo === undefined || corpo === null) return undefined;
+
+  if (typeof corpo === 'string') {
+    // String vazia é ausência de corpo, não corpo vazio.
+    if (corpo.trim().length === 0) return undefined;
+
+    try {
+      JSON.parse(corpo);
+    } catch {
+      throw new BadRequestError(
+        'O corpo veio como texto que não é JSON válido. Mande um objeto ' +
+          '(por exemplo `{"title":"Correr"}`), não uma string.'
+      );
+    }
+    // Já É JSON. Passar adiante sem reserializar — reserializar é justamente o
+    // que produzia o corpo duplo.
+    return corpo;
+  }
+
+  return JSON.stringify(corpo);
 }
 
 /** Compara por segmento; `:param` casa com um segmento não vazio. */
