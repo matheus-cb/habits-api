@@ -77,6 +77,36 @@ A chave ganha quando existe, e a ordem não é configurável: se há chave, use 
 chave. Uma variável para inverter seria uma chance de rodar o caminho caro sem
 querer.
 
+### O modelo é Sonnet, e a escolha é medida
+
+Mesma pergunta, mesmo prompt, mesmo motor:
+
+| modelo | voltas | saída | custo | tempo |
+|---|---|---|---|---|
+| opus | 4 | 315 | $0.1661 | 9.5s |
+| **sonnet** | 4 | 318 | **$0.0882** | 8.2s |
+| haiku | 11 | 1528 | $0.1232 | 27.1s |
+
+Sonnet custa **47% menos que Opus e responde igual**. Confirmado depois pelo
+endpoint real: $0.080 contra $0.192 na mesma classe de pergunta.
+
+E **Haiku é pior nos dois eixos** — não por ser mais barato por token, mas porque
+erra e tenta de novo: onze voltas, e cada volta relê o contexto inteiro. O modelo
+mais barato por token sendo o mais caro por resposta é o resultado que contraria a
+intuição, e é por isso que a escolha está medida em vez de suposta.
+
+`ASSISTANT_MODEL` vale para os dois motores — `--model` no subprocesso e `model` na
+chamada do SDK. Um assistente que respondesse diferente dependendo do motor seria
+dois assistentes.
+
+A **redação** (resumo de aderência, justificativa das propostas) segue em Opus por
+`ANTHROPIC_MODEL`: é um parágrafo por visita à tela, a qualidade do texto importa e
+o custo é irrelevante nesse volume.
+
+E o modelo é **fixado, não herdado** da sessão de quem instalou o CLI: herdar faria
+o custo e o comportamento do chat mudarem quando a pessoa trocasse de modelo no
+terminal por outro motivo. O chat é um produto, não uma sessão.
+
 ### O que eu supus errado sobre o motor CLI, e medi
 
 **Reaproveitar a sessão não barateia.** A hipótese era que `--resume` faria o

@@ -10,8 +10,12 @@ import { recursosAtivos } from '../lib/fechar-pool-http';
 import {
   erroDePortaOcupada,
   MENOR_PORTA_EFEMERA_CONHECIDA,
-  PORTA_FIXA_DE_TESTE,
+  portaFixaPara,
+  TODAS_AS_PORTAS,
 } from '../lib/porta-fixa';
+
+/** Porta própria deste arquivo. Compartilhar reabre o flake de ECONNRESET. */
+const PORTA = portaFixaPara('primitivas-mcp');
 import { TABELAS_EXPOSTAS, TABELAS_NAO_EXPOSTAS } from '@/mcp/tabelas';
 import { addUtcDays, toDayKey, utcStartOfDay } from '@/utils/helpers';
 
@@ -45,10 +49,10 @@ beforeAll(async () => {
   // sem relação. Ver `tests/lib/porta-fixa.ts`.
   await new Promise<void>((resolve, reject) => {
     servidor = app
-      .listen(PORTA_FIXA_DE_TESTE, () => resolve())
+      .listen(PORTA, () => resolve())
       .on('error', (erro: NodeJS.ErrnoException) => {
         reject(
-          erro.code === 'EADDRINUSE' ? new Error(erroDePortaOcupada(PORTA_FIXA_DE_TESTE)) : erro
+          erro.code === 'EADDRINUSE' ? new Error(erroDePortaOcupada(PORTA)) : erro
         );
       });
   });
@@ -872,10 +876,33 @@ describe('INV-33 — o socket obsoleto do pool não pode colidir', () => {
     const endereco = servidor.address();
     const porta = typeof endereco === 'object' && endereco ? endereco.port : 0;
 
-    expect(porta).toBe(PORTA_FIXA_DE_TESTE);
+    expect(porta).toBe(PORTA);
     // 32768 é o piso do Linux (o do CI); o macOS começa em 49152. Abaixo do menor
     // dos dois vale nos dois.
     expect(porta).toBeLessThan(MENOR_PORTA_EFEMERA_CONHECIDA);
+  });
+
+  it('INV-33: adversário — cada arquivo tem porta PRÓPRIA, e todas fora da faixa', () => {
+    // A correção anterior era uma constante só, e três arquivos passaram a usá-la.
+    // Com `--runInBand` isso vira fecha-e-reabre no mesmo endereço dentro do mesmo
+    // processo — o cenário que eu havia medido produzindo `ECONNRESET`, e que o
+    // retry do gateway só cobre em `GET`. O supertest não passa pelo gateway, e o
+    // flake voltou.
+    //
+    // Este caso é o que impede a volta: porta duplicada reprova aqui.
+    const portas = Object.values(TODAS_AS_PORTAS);
+
+    expect(portas.length).toBeGreaterThanOrEqual(3);
+    expect(new Set(portas).size).toBe(portas.length);
+    for (const porta of portas) {
+      expect(porta).toBeLessThan(MENOR_PORTA_EFEMERA_CONHECIDA);
+    }
+  });
+
+  it('INV-33: adversário — pedir porta para arquivo sem entrada FALHA alto', () => {
+    // Um default silencioso reintroduziria o compartilhamento: dois arquivos sem
+    // entrada cairiam no mesmo número. A mensagem diz o que fazer.
+    expect(() => portaFixaPara('arquivo-que-nao-existe')).toThrow(/Acrescente uma/);
   });
 
   it('INV-33: adversário — GET se recupera de socket obsoleto do pool', async () => {
@@ -895,7 +922,7 @@ describe('INV-33 — o socket obsoleto do pool não pode colidir', () => {
     await new Promise<void>((resolve) => servidor.close(() => resolve()));
     await new Promise<void>((resolve, reject) => {
       servidor = app
-        .listen(PORTA_FIXA_DE_TESTE, () => resolve())
+        .listen(PORTA, () => resolve())
         .on('error', (erro: Error) => reject(erro));
     });
 
@@ -923,7 +950,7 @@ describe('INV-33 — o socket obsoleto do pool não pode colidir', () => {
     await new Promise<void>((resolve) => servidor.close(() => resolve()));
     await new Promise<void>((resolve, reject) => {
       servidor = app
-        .listen(PORTA_FIXA_DE_TESTE, () => resolve())
+        .listen(PORTA, () => resolve())
         .on('error', (erro: Error) => reject(erro));
     });
 

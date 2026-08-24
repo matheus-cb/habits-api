@@ -163,6 +163,12 @@ export class MotorCli {
       input.mensagem,
       '--output-format',
       'json',
+      // Fixado, e não herdado da sessão de quem instalou o CLI. Herdar faria o
+      // custo e o comportamento do chat mudarem quando a pessoa trocasse de
+      // modelo no terminal por outro motivo — e o chat é um produto, não uma
+      // sessão. Ver `ASSISTANT_MODEL` para a medição que escolheu Sonnet.
+      '--model',
+      env.ASSISTANT_MODEL,
       '--mcp-config',
       configuracao,
       '--append-system-prompt',

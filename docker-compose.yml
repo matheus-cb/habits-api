@@ -63,6 +63,7 @@ services:
       # funcionar sem provedor de IA (INV-15), e o smoke verifica isso.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-opus-5}
+      ASSISTANT_MODEL: ${ASSISTANT_MODEL:-claude-sonnet-5}
       # Os tetos do assistente conversacional.
       #
       # Sem estas linhas o container caía nos defaults do Zod e os valores do

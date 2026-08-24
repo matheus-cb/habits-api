@@ -19,7 +19,24 @@ const app: Express = express();
 app.use(helmet());
 app.use(
   cors({
-    origin: env.CORS_ORIGIN,
+    /**
+     * Vírgula separa origens, e uma só continua funcionando.
+     *
+     * `CORS_ORIGIN` era uma origem única, e o dashboard mudou de porta: o `.env`
+     * dizia `localhost:3001` e o dev server subia em `3010`. O navegador
+     * bloqueava o login com uma mensagem sobre CORS — que é a mensagem certa e
+     * aponta para a configuração, não para o código.
+     *
+     * Isto não aparecia no container porque `CORS_ORIGIN` **não chegava lá**: era
+     * uma das duas variáveis que o gate de INV-37 achou faltando no compose. No
+     * container o Zod caía em `*` e tudo passava; no host a variável existia e
+     * estava errada. Dois ambientes, dois comportamentos, nenhum aviso.
+     *
+     * Lista e não `*`: `*` com `credentials: true` é recusado pelo próprio
+     * navegador, e afrouxar para resolver um erro de porta seria trocar um
+     * problema visível por um invisível.
+     */
+    origin: env.CORS_ORIGIN.split(',').map((origem) => origem.trim()),
     credentials: true,
   })
 );

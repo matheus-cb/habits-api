@@ -109,6 +109,24 @@ serve. Só um caso que registra uma rejeição de propósito chega lá.
 **Regra que precisa nomear cada categoria não escala; procedimento externo ao ato,
 sim.** É por isso que a Regra 1 é a que mais importa.
 
+## Quando a correção cria o problema seguinte
+
+A porta fixa fechou a colisão por reciclagem e **criou** o reuso de origem: três
+arquivos de integração passaram a ligar a mesma porta, e com `--runInBand` isso é
+fecha-e-reabre no mesmo endereço dentro do mesmo processo — o cenário que eu já
+havia medido produzindo `ECONNRESET`.
+
+O retry do gateway só cobre `GET`, e o supertest não passa pelo gateway. O flake
+voltou, num teste sem relação com a causa.
+
+Duas coisas a tirar:
+
+1. **Porta por arquivo**, não uma constante compartilhada, com um erro alto quando
+   falta entrada. Default silencioso reintroduziria o compartilhamento.
+2. **A regra do `tee` se pagou na primeira reincidência.** O `.verify.log` guardou
+   o nome do teste e o erro — a informação que faltou na primeira ocorrência e que
+   custou quatro rodadas de hipótese.
+
 ## Sobre depuração de flake
 
 Três coisas fizeram a única depuração de flake desta safra funcionar, e nenhuma foi

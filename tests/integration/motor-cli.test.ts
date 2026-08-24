@@ -10,7 +10,10 @@ import { criarGatewayDeQuery } from '@/mcp/query';
 import { HttpRequestGateway } from '@/mcp/request';
 import { esquecerEnderecoLocal, registrarEnderecoLocal } from '@/mcp/endereco';
 import { CABECALHO_DE_CONVERSA, TOOLS_DO_ASSISTENTE } from '@/mcp/tools-assistente';
-import { erroDePortaOcupada, PORTA_FIXA_DE_TESTE } from '../lib/porta-fixa';
+import { erroDePortaOcupada, portaFixaPara } from '../lib/porta-fixa';
+
+/** Porta própria deste arquivo. Compartilhar reabre o flake de ECONNRESET. */
+const PORTA = portaFixaPara('motor-cli');
 
 /**
  * O motor do assistente sobre o CLI do Claude Code — Camada 2.
@@ -35,10 +38,10 @@ let servidor: ReturnType<typeof app.listen>;
 beforeAll(async () => {
   await new Promise<void>((resolve, reject) => {
     servidor = app
-      .listen(PORTA_FIXA_DE_TESTE, () => resolve())
+      .listen(PORTA, () => resolve())
       .on('error', (erro: NodeJS.ErrnoException) => {
         reject(
-          erro.code === 'EADDRINUSE' ? new Error(erroDePortaOcupada(PORTA_FIXA_DE_TESTE)) : erro
+          erro.code === 'EADDRINUSE' ? new Error(erroDePortaOcupada(PORTA)) : erro
         );
       });
   });

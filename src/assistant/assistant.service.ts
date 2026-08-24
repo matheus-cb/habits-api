@@ -240,7 +240,7 @@ export class AssistantService {
       await this.repo.registrarChamada({
         userId: input.userId,
         conversationId: input.conversationId,
-        model: 'claude-code-cli',
+        model: `cli:${env.ASSISTANT_MODEL}`,
         inputTokens: 0,
         outputTokens: 0,
         toolCalls: 0,
@@ -254,7 +254,7 @@ export class AssistantService {
     await this.repo.registrarChamada({
       userId: input.userId,
       conversationId: input.conversationId,
-      model: 'claude-code-cli',
+      model: `cli:${env.ASSISTANT_MODEL}`,
       inputTokens: 0,
       outputTokens: resposta.tokensDeSaida,
       toolCalls: resposta.turnos,
@@ -357,7 +357,11 @@ export class AssistantService {
       let resposta: Anthropic.Message;
       try {
         resposta = await this.cliente!.messages.create({
-          model: env.ANTHROPIC_MODEL,
+          // `ASSISTANT_MODEL` e não `ANTHROPIC_MODEL`: a redação do resumo de
+          // aderência é um parágrafo por visita e usa Opus; o assistente dá
+          // várias voltas por mensagem e usa Sonnet, que mediu 47% mais barato
+          // com a mesma resposta.
+          model: env.ASSISTANT_MODEL,
           max_tokens: env.AI_MAX_OUTPUT_TOKENS,
           system: sistema,
           messages: historico,

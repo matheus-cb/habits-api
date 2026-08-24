@@ -20,7 +20,35 @@ const envSchema = z.object({
    * o oposto do que a fronteira exige.
    */
   ANTHROPIC_API_KEY: z.string().optional(),
+  /**
+   * Modelo da REDAÇÃO — o resumo de aderência e a justificativa das propostas.
+   *
+   * Opus porque é um parágrafo por chamada, uma vez por visita à tela de
+   * insights: a qualidade do texto importa e o custo é irrelevante nesse volume.
+   */
   ANTHROPIC_MODEL: z.string().default('claude-opus-5'),
+
+  /**
+   * Modelo do ASSISTENTE conversacional, e por que ele é diferente do da redação.
+   *
+   * Sonnet, e a escolha é medida. Mesma pergunta, mesmo prompt, mesmo número de
+   * voltas:
+   *
+   *   opus    4 voltas   315 tokens de saída   $0.1661   9.5s
+   *   sonnet  4 voltas   318 tokens de saída   $0.0882   8.2s
+   *   haiku  11 voltas  1528 tokens de saída   $0.1232  27.1s
+   *
+   * Sonnet custa **47% menos** que Opus e responde igual. E Haiku é pior nos dois
+   * eixos — não por ser mais barato por token, mas porque **erra e tenta de novo**:
+   * onze voltas, e cada volta relê o contexto inteiro. O modelo mais barato por
+   * token sendo o mais caro por resposta é o resultado que contraria a intuição, e
+   * é por isso que a escolha está medida em vez de suposta.
+   *
+   * Vale para os DOIS motores: `--model` no subprocesso do CLI, e `model` na
+   * chamada do SDK. Um assistente que respondesse diferente dependendo do motor
+   * seria dois assistentes.
+   */
+  ASSISTANT_MODEL: z.string().default('claude-sonnet-5'),
   /** Teto de saída da redação. Resumo é texto curto; não precisa de mais. */
   AI_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(256).max(8192).default(1024),
 
