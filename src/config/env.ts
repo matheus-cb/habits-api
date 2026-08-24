@@ -20,7 +20,35 @@ const envSchema = z.object({
    * o oposto do que a fronteira exige.
    */
   ANTHROPIC_API_KEY: z.string().optional(),
+  /**
+   * Modelo da REDAÇÃO — o resumo de aderência e a justificativa das propostas.
+   *
+   * Opus porque é um parágrafo por chamada, uma vez por visita à tela de
+   * insights: a qualidade do texto importa e o custo é irrelevante nesse volume.
+   */
   ANTHROPIC_MODEL: z.string().default('claude-opus-5'),
+
+  /**
+   * Modelo do ASSISTENTE conversacional, e por que ele é diferente do da redação.
+   *
+   * Sonnet, e a escolha é medida. Mesma pergunta, mesmo prompt, mesmo número de
+   * voltas:
+   *
+   *   opus    4 voltas   315 tokens de saída   $0.1661   9.5s
+   *   sonnet  4 voltas   318 tokens de saída   $0.0882   8.2s
+   *   haiku  11 voltas  1528 tokens de saída   $0.1232  27.1s
+   *
+   * Sonnet custa **47% menos** que Opus e responde igual. E Haiku é pior nos dois
+   * eixos — não por ser mais barato por token, mas porque **erra e tenta de novo**:
+   * onze voltas, e cada volta relê o contexto inteiro. O modelo mais barato por
+   * token sendo o mais caro por resposta é o resultado que contraria a intuição, e
+   * é por isso que a escolha está medida em vez de suposta.
+   *
+   * Vale para os DOIS motores: `--model` no subprocesso do CLI, e `model` na
+   * chamada do SDK. Um assistente que respondesse diferente dependendo do motor
+   * seria dois assistentes.
+   */
+  ASSISTANT_MODEL: z.string().default('claude-sonnet-5'),
   /** Teto de saída da redação. Resumo é texto curto; não precisa de mais. */
   AI_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(256).max(8192).default(1024),
 
@@ -49,6 +77,41 @@ const envSchema = z.object({
 
   /** Prazo de uma ação proposta. Passado isso, aprovar é recusado. */
   ASSISTANT_ACTION_TTL_MINUTES: z.coerce.number().int().min(1).default(30),
+
+  /**
+   * Caminho do executável `claude`, para o motor que roda na assinatura do
+   * Claude Code em vez de numa chave da API.
+   *
+   * Opcional: sem ele, o assistente usa a `ANTHROPIC_API_KEY`. Sem nenhum dos
+   * dois, o chat recusa com o motivo e o resto do app segue (INV-15).
+   *
+   * Caminho absoluto e não "claude" no `PATH`: o subprocesso roda com ambiente
+   * reduzido de propósito, e depender do `PATH` faria o motor funcionar no
+   * terminal e falhar no serviço, pelo mesmo tipo de divergência de ambiente que
+   * esta safra catalogou cinco vezes.
+   */
+  CLAUDE_CLI_PATH: z.string().optional(),
+
+  /**
+   * Teto de tempo do subprocesso.
+   *
+   * Medido: 9 a 46 segundos por pergunta, dependendo de quantas voltas de
+   * ferramenta o modelo dá. 120s dá folga para o pior caso observado sem deixar um
+   * processo pendurado indefinidamente segurando uma requisição HTTP.
+   */
+  ASSISTANT_CLI_TIMEOUT_MS: z.coerce.number().int().min(10_000).max(600_000).default(120_000),
+
+  /**
+   * Teto diário de CUSTO, em dólares, por usuário — para o motor CLI.
+   *
+   * Existe porque o teto de tokens não serve aqui: o CLI cobra por volta de
+   * ferramenta relendo o contexto, e uma pergunta de 280 tokens de saída custou
+   * $0.16. Contar saída mediria a coisa errada por uma ordem de grandeza.
+   *
+   * 3 dólares por dia por pessoa dá cerca de 18 perguntas ao preço medido. Para
+   * duas ou três contas de uso próprio é folgado; se doer, é este número que muda.
+   */
+  ASSISTANT_DAILY_COST_USD: z.coerce.number().min(0.1).default(3),
   /** Timeout do provedor, em ms. Estourar cai no redator determinístico. */
   AI_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120_000).default(20_000),
 

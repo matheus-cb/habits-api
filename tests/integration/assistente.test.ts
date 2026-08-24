@@ -6,7 +6,10 @@ import { AssistantService, EventoDoAssistente } from '@/assistant/assistant.serv
 import { criarGatewayDeQuery } from '@/mcp/query';
 import { HttpRequestGateway } from '@/mcp/request';
 import { registrarEnderecoLocal, esquecerEnderecoLocal } from '@/mcp/endereco';
-import { PORTA_FIXA_DE_TESTE, erroDePortaOcupada } from '../lib/porta-fixa';
+import { erroDePortaOcupada, portaFixaPara } from '../lib/porta-fixa';
+
+/** Porta própria deste arquivo. Compartilhar reabre o flake de ECONNRESET. */
+const PORTA = portaFixaPara('assistente');
 
 /**
  * O assistente conversacional — Camada 2.
@@ -31,9 +34,9 @@ let gatewayDeRequest: HttpRequestGateway;
 beforeAll(async () => {
   await new Promise<void>((resolve, reject) => {
     servidor = app
-      .listen(PORTA_FIXA_DE_TESTE, () => resolve())
+      .listen(PORTA, () => resolve())
       .on('error', (erro: NodeJS.ErrnoException) => {
-        reject(erro.code === 'EADDRINUSE' ? new Error(erroDePortaOcupada(PORTA_FIXA_DE_TESTE)) : erro);
+        reject(erro.code === 'EADDRINUSE' ? new Error(erroDePortaOcupada(PORTA)) : erro);
       });
   });
   registrarEnderecoLocal(servidor);

@@ -236,6 +236,16 @@ export const ROTAS_NEGADAS: readonly { metodo: string; padrao: string; motivo: s
     motivo: 'recursão: uma chamada abriria outra sessão MCP dentro desta',
   },
   {
+    metodo: 'POST',
+    padrao: '/mcp/assistente',
+    motivo: 'recursão, e a superfície restrita não tem escrita a alcançar de todo modo',
+  },
+  {
+    metodo: '*',
+    padrao: '/mcp/assistente',
+    motivo: 'o 405 do transporte sem sessão na superfície restrita',
+  },
+  {
     // `router.all('/')` responde 405 a tudo que não é POST, e o Express registra
     // isso como o método `_all`. O enumerador o traduz para `*`, então a entrada
     // que o classifica também precisa ser `*` — não GET e DELETE, que foi o que
@@ -399,7 +409,7 @@ export class HttpRequestGateway implements GatewayDeRequest {
       );
     }
 
-    const corpoSerializado = corpo === undefined ? undefined : JSON.stringify(corpo);
+    const corpoSerializado = serializarCorpo(corpo);
     if (corpoSerializado && corpoSerializado.length > TAMANHO_MAXIMO_DO_CORPO) {
       throw new BadRequestError('Corpo acima de 16 KB.');
     }
@@ -487,16 +497,99 @@ export class HttpRequestGateway implements GatewayDeRequest {
 }
 
 /**
- * Falha de CONEXÃO, e não resposta de erro.
+ * Falha de transporte, e não de aplicação — DERIVADA em vez de enumerada.
  *
- * O `fetch` embrulha erros de rede num `TypeError: fetch failed` com o motivo
- * real em `cause`. Sem olhar a `cause`, um `AbortError` de timeout e um
- * `ECONNRESET` de socket obsoleto seriam indistinguíveis — e repetir depois de um
- * timeout de 15s dobraria a espera em vez de consertar nada.
+ * ## Por que a primeira versão estava errada
+ *
+ * Ela listava `ECONNRESET`, `ECONNREFUSED` e `EPIPE` — os códigos que eu havia
+ * **observado**. O CI reprovou com `SocketError: other side closed`, que é do
+ * undici e tem outro código: o retry não disparou, e o teste que afirma a
+ * recuperação falhou no Linux depois de passar no macOS.
+ *
+ * É o padrão desta safra outra vez: eu enumerei os casos que tinha em mão em vez
+ * de descrever a classe.
+ *
+ * ## A classe, e como ela se descreve sozinha
+ *
+ * `fetch` **só lança em falha de transporte**. Resposta HTTP de erro — 400, 500 —
+ * volta como `Response`, não como exceção. Então qualquer exceção do `fetch` é
+ * problema de conexão, e a pergunta certa não é "qual código?" e sim "há motivo
+ * para NÃO repetir?".
+ *
+ * Há um: cancelamento e timeout. Repetir depois de esperar 15 segundos dobra a
+ * espera sem consertar nada, e um cancelamento deliberado deve ficar cancelado.
+ * Esses são a exceção, e são poucos e nomeados.
+ *
+ * Invertida assim, um código de erro novo do undici passa a ser coberto por
+ * padrão — que é a direção segura para um retry restrito a `GET`.
  */
 function ehFalhaDeConexao(erro: unknown): boolean {
-  const causa = (erro as { cause?: { code?: string } } | undefined)?.cause;
-  return causa?.code === 'ECONNRESET' || causa?.code === 'ECONNREFUSED' || causa?.code === 'EPIPE';
+  const causa = (erro as { cause?: { code?: string; name?: string } } | undefined)?.cause;
+  const nome = (erro as { name?: string } | undefined)?.name;
+
+  const ehCancelamento =
+    nome === 'AbortError' ||
+    nome === 'TimeoutError' ||
+    causa?.name === 'AbortError' ||
+    causa?.name === 'TimeoutError' ||
+    causa?.code === 'UND_ERR_HEADERS_TIMEOUT' ||
+    causa?.code === 'UND_ERR_BODY_TIMEOUT' ||
+    causa?.code === 'UND_ERR_CONNECT_TIMEOUT';
+
+  return !ehCancelamento;
+}
+
+/**
+ * Serializa o corpo, aceitando objeto **ou** string já em JSON.
+ *
+ * ## O defeito que produziu isto
+ *
+ * A versão anterior fazia `JSON.stringify(corpo)` sempre. Um modelo que passasse
+ * `corpo` como STRING contendo JSON — `'{"title":"x"}'` em vez de
+ * `{title:'x'}` — produzia `"\"{\\\"title\\\":...}\""`: JSON duplamente
+ * codificado. O `body-parser` da API estourava com `SyntaxError` e o cliente
+ * recebia **500 Internal server error**.
+ *
+ * Três coisas erradas nisso, em ordem de gravidade:
+ *
+ * 1. **O 500 é a resposta errada.** Entrada malformada de ferramenta é problema
+ *    do chamador, e ele precisa de um erro que dê para corrigir. `Internal server
+ *    error` não diz nada, e o modelo tenta de novo igual.
+ * 2. **É o caso comum, não o excepcional.** Modelo passar JSON como string é
+ *    frequente — o esquema declara `corpo` como objeto e o modelo às vezes
+ *    serializa por conta própria.
+ * 3. **Foi encontrado por acidente.** Só apareceu ao exercitar o MCP pelo CLI do
+ *    Claude Code; nenhum dos testes passava string, porque eu escrevi todos
+ *    passando objeto — o caso de origem, outra vez.
+ *
+ * ## Por que aceitar a string em vez de recusar
+ *
+ * Recusar seria defensável e é pior na prática: o modelo receberia 400, teria de
+ * entender a distinção entre objeto e string JSON, e gastaria uma volta. Aceitar
+ * as duas formas custa três linhas e nenhuma ambiguidade — string que **não** é
+ * JSON válido continua sendo 400, com a mensagem dizendo o que fazer.
+ */
+function serializarCorpo(corpo: unknown): string | undefined {
+  if (corpo === undefined || corpo === null) return undefined;
+
+  if (typeof corpo === 'string') {
+    // String vazia é ausência de corpo, não corpo vazio.
+    if (corpo.trim().length === 0) return undefined;
+
+    try {
+      JSON.parse(corpo);
+    } catch {
+      throw new BadRequestError(
+        'O corpo veio como texto que não é JSON válido. Mande um objeto ' +
+          '(por exemplo `{"title":"Correr"}`), não uma string.'
+      );
+    }
+    // Já É JSON. Passar adiante sem reserializar — reserializar é justamente o
+    // que produzia o corpo duplo.
+    return corpo;
+  }
+
+  return JSON.stringify(corpo);
 }
 
 /** Compara por segmento; `:param` casa com um segmento não vazio. */

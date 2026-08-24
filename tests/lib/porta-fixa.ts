@@ -61,7 +61,56 @@
  * `24333` está abaixo de 32768, então vale nos dois. Não é aleatório e não deve
  * ser trocado por um número maior sem conferir as duas faixas.
  */
-export const PORTA_FIXA_DE_TESTE = 24333;
+/**
+ * Uma porta POR ARQUIVO, e a razão é a correção anterior ter criado um problema.
+ *
+ * A primeira versão era uma constante só, e três arquivos de integração passaram a
+ * usá-la. Com `--runInBand` isso vira fecha-e-reabre no MESMO endereço dentro do
+ * mesmo processo — exatamente o cenário que eu havia medido produzindo
+ * `read ECONNRESET` de forma determinística, e que o retry do gateway só cobre em
+ * `GET`. O supertest não passa pelo gateway.
+ *
+ * O flake voltou por isso, e voltou COM NOME: `.verify.log` guardou
+ * `INV-27: adversário — não há JOIN que alcance check-in de outra pessoa · read
+ * ECONNRESET`. Foi a regra do `tee` pagando o próprio custo.
+ *
+ * Portas distintas removem o reuso de origem: cada arquivo tem a sua, nenhuma é
+ * reaberta, e o pool do undici nunca tem socket obsoleto para um endereço que
+ * volte a existir.
+ *
+ * ## Os números, e por que não são maiores
+ *
+ * Todas abaixo de **32768**, que é o piso do `ip_local_port_range` do Linux do CI
+ * (o macOS começa em 49152). Fora da faixa efêmera, o SO nunca as atribui a um
+ * servidor de supertest.
+ */
+const PORTAS: Record<string, number> = {
+  'primitivas-mcp': 24333,
+  assistente: 24334,
+  'motor-cli': 24335,
+};
+
+/**
+ * A porta deste arquivo de teste.
+ *
+ * Recebe o nome em vez de derivar de `__filename` porque derivar amarraria o mapa
+ * ao caminho do arquivo: renomear o teste mudaria a chave em silêncio e cairia no
+ * default, reintroduzindo o compartilhamento. Nome explícito falha alto.
+ */
+export function portaFixaPara(arquivo: keyof typeof PORTAS | string): number {
+  const porta = PORTAS[arquivo];
+  if (porta === undefined) {
+    throw new Error(
+      `Sem porta fixa para "${arquivo}". Acrescente uma em tests/lib/porta-fixa.ts, ` +
+        'abaixo de 32768 e diferente das outras — compartilhar porta entre arquivos ' +
+        'reabre o flake de ECONNRESET.'
+    );
+  }
+  return porta;
+}
+
+/** Todas, para o teste que confere que são distintas e fora da faixa. */
+export const TODAS_AS_PORTAS = PORTAS;
 
 /** Faixas efêmeras conhecidas. O teste usa isto para AFIRMAR que a porta está fora. */
 export const MENOR_PORTA_EFEMERA_CONHECIDA = 32768;

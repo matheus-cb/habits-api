@@ -109,6 +109,41 @@ serve. Só um caso que registra uma rejeição de propósito chega lá.
 **Regra que precisa nomear cada categoria não escala; procedimento externo ao ato,
 sim.** É por isso que a Regra 1 é a que mais importa.
 
+## Quando a correção cria o problema seguinte
+
+A porta fixa fechou a colisão por reciclagem e **criou** o reuso de origem: três
+arquivos de integração passaram a ligar a mesma porta, e com `--runInBand` isso é
+fecha-e-reabre no mesmo endereço dentro do mesmo processo — o cenário que eu já
+havia medido produzindo `ECONNRESET`.
+
+O retry do gateway só cobre `GET`, e o supertest não passa pelo gateway. O flake
+voltou, num teste sem relação com a causa.
+
+Duas coisas a tirar:
+
+1. **Porta por arquivo**, não uma constante compartilhada, com um erro alto quando
+   falta entrada. Default silencioso reintroduziria o compartilhamento.
+2. **A regra do `tee` se pagou na primeira reincidência.** O `.verify.log` guardou
+   o nome do teste e o erro — a informação que faltou na primeira ocorrência e que
+   custou quatro rodadas de hipótese.
+
+## Enumerar os casos que se tem em mão, em vez de descrever a classe
+
+O retry do gateway classificava falha de conexão por uma **lista** de códigos:
+`ECONNRESET`, `ECONNREFUSED`, `EPIPE` — os que eu havia observado no macOS. O CI
+reprovou no Linux com `SocketError: other side closed`, do undici, código
+`UND_ERR_SOCKET`. O retry não disparou, e o teste que afirma a recuperação falhou
+num ambiente depois de passar no outro.
+
+A correção **inverte a pergunta**. `fetch` só lança em falha de transporte —
+resposta HTTP de erro volta como `Response`, não como exceção. Então a pergunta não
+é "qual código?" e sim "há motivo para NÃO repetir?", e a resposta é curta:
+cancelamento e timeout.
+
+Invertida assim, código novo do undici passa a ser coberto por padrão — a direção
+segura para um retry restrito a `GET`. É a mesma forma de INV-26 e INV-29: o que se
+enumera é a exceção, e o default é o comportamento certo.
+
 ## Sobre depuração de flake
 
 Três coisas fizeram a única depuração de flake desta safra funcionar, e nenhuma foi

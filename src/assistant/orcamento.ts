@@ -26,25 +26,43 @@ import { assistantRepository } from '@/repositories/assistant.repository';
  * durante três horas por dia.
  */
 export interface EstadoDoOrcamento {
+  /** Tokens de saída hoje. Relevante para o motor da API. */
   gastoHoje: number;
   teto: number;
   restante: number;
+  /** Dólares hoje. Relevante para o motor CLI, que cobra por volta. */
+  custoHoje: number;
+  tetoDeCusto: number;
   excedido: boolean;
+  /** Qual dos dois estourou. `null` quando nenhum. */
+  motivo: 'tokens' | 'custo' | null;
 }
 
 export async function orcamentoDoDia(userId: string): Promise<EstadoDoOrcamento> {
   const inicioDoDiaUtc = new Date();
   inicioDoDiaUtc.setUTCHours(0, 0, 0, 0);
 
-  const gastoHoje = await assistantRepository.saidaDesde(userId, inicioDoDiaUtc);
+  const { saida, custo } = await assistantRepository.consumoDesde(userId, inicioDoDiaUtc);
   const teto = env.ASSISTANT_DAILY_OUTPUT_TOKENS;
+  const tetoDeCusto = env.ASSISTANT_DAILY_COST_USD;
+
+  // `>=` e não `>`: atingir o teto exatamente já é tê-lo consumido. Com `>`, a
+  // última mensagem sempre passaria, e o teto seria "o teto mais uma mensagem".
+  const estourouTokens = saida >= teto;
+  const estourouCusto = custo >= tetoDeCusto;
 
   return {
-    gastoHoje,
+    gastoHoje: saida,
     teto,
-    restante: Math.max(0, teto - gastoHoje),
-    // `>=` e não `>`: atingir o teto exatamente já é tê-lo consumido. Com `>`, a
-    // última mensagem sempre passaria, e o teto seria "o teto mais uma mensagem".
-    excedido: gastoHoje >= teto,
+    restante: Math.max(0, teto - saida),
+    custoHoje: custo,
+    tetoDeCusto,
+    excedido: estourouTokens || estourouCusto,
+    // Os DOIS tetos valem para os dois motores, e o motivo é declarado porque a
+    // pessoa precisa saber qual bateu: "gastei muito token" e "gastei muito
+    // dinheiro" pedem ações diferentes. O de custo é o que morde no motor CLI,
+    // onde uma pergunta de 280 tokens de saída custou $0.16 — contar saída ali
+    // mediria a coisa errada por uma ordem de grandeza.
+    motivo: estourouCusto ? 'custo' : estourouTokens ? 'tokens' : null,
   };
 }

@@ -63,6 +63,7 @@ services:
       # funcionar sem provedor de IA (INV-15), e o smoke verifica isso.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-opus-5}
+      ASSISTANT_MODEL: ${ASSISTANT_MODEL:-claude-sonnet-5}
       # Os tetos do assistente conversacional.
       #
       # Sem estas linhas o container caía nos defaults do Zod e os valores do
@@ -75,6 +76,14 @@ services:
       ASSISTANT_ACTION_TTL_MINUTES: ${ASSISTANT_ACTION_TTL_MINUTES:-30}
       AI_MAX_OUTPUT_TOKENS: ${AI_MAX_OUTPUT_TOKENS:-1024}
       AI_TIMEOUT_MS: ${AI_TIMEOUT_MS:-20000}
+      ASSISTANT_DAILY_COST_USD: ${ASSISTANT_DAILY_COST_USD:-3}
+      ASSISTANT_CLI_TIMEOUT_MS: ${ASSISTANT_CLI_TIMEOUT_MS:-120000}
+      # `CLAUDE_CLI_PATH` NÃO tem default, e a ausência é a informação: o CLI do
+      # Claude Code não existe na imagem e não pode existir — a credencial dele
+      # vive no keychain de quem instalou. Passar a variável é intencional para o
+      # caso de alguém montar o binário e o `HOME` no container; vazia, o motor CLI
+      # simplesmente não é escolhido e a chave da API atende.
+      CLAUDE_CLI_PATH: ${CLAUDE_CLI_PATH:-}
       # `CORS_ORIGIN` faltava desde antes do assistente, e o efeito é visível: o
       # dashboard servido de outra origem seria bloqueado pelo navegador e o
       # container não tinha como saber qual origem liberar. Achado pelo gate de

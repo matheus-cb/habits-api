@@ -154,7 +154,12 @@ export class AssistantController {
     const enviarEvento = abrirStream(res, { conversationId: conversa.id });
 
     try {
-      await this.service.retomar({ userId, conversationId: conversa.id, emitir: enviarEvento });
+      await this.service.retomar({
+        userId,
+        token: tokenDaRequisicao(req),
+        conversationId: conversa.id,
+        emitir: enviarEvento,
+      });
     } catch (erro) {
       enviarEvento({
         tipo: 'erro',

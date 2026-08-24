@@ -88,6 +88,14 @@ export class AssistantRepository {
     return prisma.pendingAction.create({ data: dados });
   }
 
+  /** Ações de uma conversa, da mais antiga para a mais nova. */
+  acoesDaConversa(conversationId: string): Promise<PendingAction[]> {
+    return prisma.pendingAction.findMany({
+      where: { conversationId },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
   acharAcaoComConversa(id: string) {
     return prisma.pendingAction.findFirst({ where: { id }, include: { conversation: true } });
   }
@@ -115,17 +123,37 @@ export class AssistantRepository {
     toolCalls: number;
     durationMs: number;
     outcome: string;
+    engine?: string;
+    costUsd?: number;
   }): Promise<AiCall> {
     return prisma.aiCall.create({ data: dados });
   }
 
-  /** Soma dos tokens de SAÍDA desde um instante. Ver `assistant/orcamento.ts`. */
-  async saidaDesde(userId: string, desde: Date): Promise<number> {
+  /** Guarda a sessão do CLI na conversa. Ver `Conversation.cliSessionId`. */
+  async guardarSessaoDoCli(conversationId: string, cliSessionId: string): Promise<void> {
+    await prisma.conversation.update({ where: { id: conversationId }, data: { cliSessionId } });
+  }
+
+  /**
+   * Consumo desde um instante: tokens de saída E custo em dólares.
+   *
+   * Os dois numa consulta porque os dois tetos são conferidos juntos, e duas
+   * consultas dariam duas leituras de instantes diferentes — a segunda podendo
+   * incluir uma chamada que a primeira não viu.
+   */
+  async consumoDesde(userId: string, desde: Date): Promise<{ saida: number; custo: number }> {
     const soma = await prisma.aiCall.aggregate({
       where: { userId, createdAt: { gte: desde } },
-      _sum: { outputTokens: true },
+      _sum: { outputTokens: true, costUsd: true },
     });
-    return soma._sum.outputTokens ?? 0;
+
+    return {
+      saida: soma._sum.outputTokens ?? 0,
+      // `Decimal` do Prisma para número: o total do dia não passa de dezenas de
+      // dólares, então a perda de precisão do `Number` é irrelevante AQUI — o
+      // motivo de a coluna ser `Decimal` é a soma no banco, não este retorno.
+      custo: Number(soma._sum.costUsd ?? 0),
+    };
   }
 }
 
