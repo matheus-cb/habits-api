@@ -37,6 +37,7 @@ model User {
   habits        Habit[]
   conversations Conversation[]
   aiCalls       AiCall[]
+  aiUsage       AiUsageMonthly[]
 
   @@map("users")
 }
@@ -279,4 +280,29 @@ model AiCall {
 
   @@index([userId, createdAt])
   @@map("ai_calls")
+}
+
+/// Consumo agregado por mês. O que sobrevive à retenção de `ai_calls`.
+///
+/// Existe porque as duas perguntas que a telemetria de custo serve têm horizontes
+/// diferentes: "quanto gastei ontem?" precisa da linha individual, e "meu gasto
+/// está subindo ao longo dos meses?" precisa do agregado. Descartar sem agregar
+/// responderia a primeira e perderia a segunda, que é a que justifica guardar
+/// custo.
+///
+/// Uma linha por mês por usuário por motor — não cresce com uso.
+model AiUsageMonthly {
+  id           String   @id @default(uuid())
+  userId       String
+  /// Primeiro dia do mês, em UTC (INV-04).
+  month        DateTime @db.Date
+  engine       String
+  calls        Int      @default(0)
+  outputTokens BigInt   @default(0)
+  costUsd      Decimal  @default(0) @db.Decimal(12, 6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, month, engine])
+  @@map("ai_usage_monthly")
 }

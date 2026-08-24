@@ -179,6 +179,76 @@ uma conversa legítima.
 Ler o histórico continua possível por `consultar` — as quatro tabelas do assistente
 são expostas à primitiva de leitura, com RLS pelo dono.
 
+## As medições são TODAS do motor CLI, e isso importa
+
+Custo, latência, a escolha do Sonnet, as onze voltas do Haiku — tudo medido no
+motor que roda sobre `claude -p`, e esse é o motor que **não vai para produção**.
+
+Em produção roda o SDK, que tem contexto diferente (não relê ~32k tokens por
+volta), custo diferente e caminho de código diferente. **O teto diário em dólares
+foi calibrado no motor errado**, e nenhuma medição do SDK existe porque não há
+chave configurada nesta máquina.
+
+Fica declarado como o que é: o chat que vai para produção é o **menos medido** dos
+dois. A primeira coisa a fazer quando houver uma chave é medir uma pergunta pelo
+SDK e pôr os dois números lado a lado.
+
+## A superfície nativa do subprocesso é vazia (INV-39)
+
+`--allowedTools` governa **o que passa sem pedir aprovação**, não o que existe. Eu
+medi que ele não impedia o modelo de chamar `request` e concluí "a flag não
+restringe" — a medição estava certa, a conclusão errada, e por causa dela eu parei
+de procurar a flag que restringe.
+
+É `--tools`, e ela opera sobre o conjunto **embutido**. Sem ela o subprocesso tinha
+`Read`, `Write`, `Edit`, `Bash`, `WebFetch`, `Glob`, `Grep` e `Task`, rodando com o
+`HOME` de quem instalou o CLI — onde vivem `~/.ssh`, `~/.aws` e a credencial do
+próprio CLI.
+
+**Verificado com um arquivo inofensivo**: sem `--tools`, o subprocesso leu
+`/tmp/prova-tools/alvo.txt` e devolveu o conteúdo pela resposta do chat. `Read` é a
+única tool de que um atacante precisaria — não é preciso escrever nem executar nada
+para exfiltrar credencial. Com `--tools ""` a mesma mensagem recebe *"não tenho
+como fazer isso: as únicas ferramentas desta sessão são as do sistema de hábitos"*.
+
+E a lição maior é sobre o perímetro: as invariantes 25 a 38 governam o que o
+**servidor** aceita. O `spawn` introduziu um segundo executor, com os privilégios
+do usuário do sistema operacional, e nenhuma delas o governava. A fronteira do
+sistema deixou de coincidir com a API no commit em que o motor CLI entrou, e o mapa
+de invariantes não acompanhou — nenhuma das cinco regras da safra faz a pergunta
+"onde está a fronteira agora?".
+
+## Retenção: só `ai_calls` (INV-40)
+
+Eu havia declarado três tabelas sem política de descarte como se fossem o mesmo
+problema repetido. Não são:
+
+- `habit_revisions` e `conversation_messages` guardam **conteúdo** que a pessoa pode
+  querer daqui a um ano, e descartar por idade apaga exatamente o que se quer
+  recuperar de um erro antigo.
+- `ai_calls` é o inverso em três eixos: o valor **decai**, o volume cresce com
+  **uso** e não com edição, e nada nela é recuperável — é telemetria.
+
+`npm run reter:telemetria` agrega o mês em `ai_usage_monthly`, **confere** que o
+agregado bate com o que vai ser apagado, e só então apaga — mesma ordem do purge, e
+pelo mesmo motivo. Sem `--confirmar` ele só mostra.
+
+O agregado existe porque as duas perguntas têm horizontes diferentes: "quanto
+gastei ontem?" precisa da linha individual, "meu gasto está subindo ao longo dos
+meses?" precisa do agregado. Descartar sem agregar responderia a primeira e
+perderia a segunda — que é a que justifica guardar custo.
+
+## Duas decisões que são do Matheus, não minhas
+
+**Quem pode registrar.** `POST /auth/register` é aberto, e toda chamada do chat
+consome a assinatura pessoal dele. Hoje isso é local e inofensivo; no dia em que a
+API for exposta, é a primeira coisa a fechar.
+
+**O escopo do teto está POR USUÁRIO** — `orcamentoDoDia(userId)` filtra por
+identidade. A consequência: N usuários multiplicam o gasto na conta dele. A
+alternativa (teto global) trocaria isso por um usuário conseguir esgotar o dia de
+todos. Nenhuma das duas é errada, e a escolha atual é a que está no código.
+
 ## O que ainda não existe
 
 - **Streaming token a token.** O SSE emite eventos por bloco (o texto sai inteiro

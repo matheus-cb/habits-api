@@ -35,6 +35,10 @@ export const TABELAS_EXPOSTAS = [
   'conversation_messages',
   'pending_actions',
   'ai_calls',
+  // O agregado que sobrevive à retenção de `ai_calls`. Exposta pela mesma razão
+  // que ela: "meu gasto está subindo ao longo dos meses?" é a pergunta que
+  // justifica guardar custo, e é a que só o agregado responde.
+  'ai_usage_monthly',
 ] as const;
 
 /** Existem e não são alcançáveis. O motivo é o que impede a lista de virar despejo. */

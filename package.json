@@ -35,7 +35,8 @@
     "purge": "tsx scripts/purge.ts",
     "mcp:config": "tsx scripts/mcp-config.ts",
     "hooks:install": "./scripts/install-hooks.sh",
-    "test:integration:tz": "TZ=Pacific/Kiritimati jest --config jest.integration.config.js --runInBand"
+    "test:integration:tz": "TZ=Pacific/Kiritimati jest --config jest.integration.config.js --runInBand",
+    "reter:telemetria": "tsx scripts/reter-telemetria.ts"
   },
   "keywords": [
     "api",

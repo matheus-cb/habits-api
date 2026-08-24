@@ -618,3 +618,140 @@ describe('INV-15 — sem chave, o chat recusa e o app segue', () => {
     expect(insights.body.data.narration.source).toBe('deterministic');
   });
 });
+
+describe('INV-40 — a telemetria tem retenção, e o agregado sobrevive', () => {
+  /**
+   * Retenção por idade em `ai_calls`, e **só** nela.
+   *
+   * Eu havia declarado três tabelas sem política de descarte como se fossem o
+   * mesmo problema repetido. Não são, e a distinção é do peer:
+   *
+   * `habit_revisions` e `conversation_messages` guardam CONTEÚDO que a pessoa pode
+   * querer daqui a um ano, e descartar por idade apaga exatamente o que se quer
+   * recuperar de um erro antigo — foi o meu argumento original, e ele vale ali.
+   *
+   * `ai_calls` é o inverso em três eixos: o valor DECAI, o volume cresce com USO e
+   * não com edição, e nada nela é recuperável. É telemetria.
+   */
+  it('INV-40: agregar soma por usuário, mês e motor', async () => {
+    const a = await registrar('retencao-agrega@example.com');
+    const mesAntigo = new Date('2026-01-15T10:00:00Z');
+
+    for (const custo of [0.05, 0.07, 0.03]) {
+      await prismaCru.aiCall.create({
+        data: {
+          userId: a.userId,
+          model: 'cli:claude-sonnet-5',
+          inputTokens: 0,
+          outputTokens: 100,
+          toolCalls: 4,
+          durationMs: 9000,
+          outcome: 'end_turn',
+          engine: 'cli',
+          costUsd: custo,
+          createdAt: mesAntigo,
+        },
+      });
+    }
+
+    const grupos = await prismaCru.$queryRawUnsafe<
+      { calls: bigint; tokens: bigint; cost: unknown }[]
+    >(
+      `SELECT count(*) AS calls, sum("outputTokens") AS tokens, sum("costUsd") AS cost
+         FROM ai_calls WHERE "userId" = $1`,
+      a.userId
+    );
+
+    expect(Number(grupos[0]!.calls)).toBe(3);
+    expect(Number(grupos[0]!.tokens)).toBe(300);
+    // 0.05 + 0.07 + 0.03 = 0.15, e a soma é feita em DECIMAL no banco. Em ponto
+    // flutuante isto daria 0.15000000000000002 — o motivo de a coluna não ser
+    // `Float`.
+    expect(Number(grupos[0]!.cost)).toBeCloseTo(0.15, 6);
+  });
+
+  it('INV-40: adversário — `costUsd` é DECIMAL, e a soma não acumula erro', async () => {
+    // O caso que justifica o tipo. Dez centavos de três somados em `Float` já
+    // divergem na décima casa, e esta coluna existe para virar um total que a
+    // pessoa lê.
+    const a = await registrar('retencao-decimal@example.com');
+
+    for (let i = 0; i < 10; i += 1) {
+      await prismaCru.aiCall.create({
+        data: {
+          userId: a.userId,
+          model: 'cli:claude-sonnet-5',
+          inputTokens: 0,
+          outputTokens: 1,
+          toolCalls: 1,
+          durationMs: 1,
+          outcome: 'end_turn',
+          engine: 'cli',
+          costUsd: 0.1,
+        },
+      });
+    }
+
+    const [soma] = await prismaCru.$queryRawUnsafe<{ total: unknown }[]>(
+      `SELECT sum("costUsd") AS total FROM ai_calls WHERE "userId" = $1`,
+      a.userId
+    );
+
+    // Exatamente 1, sem cauda. Em `Float` seria 0.9999999999999999.
+    //
+    // A asserção é sobre a AUSÊNCIA de cauda, não sobre a formatação: o Postgres
+    // devolveu `"1"` e a minha primeira versão exigia `"1.000000"`. Afirmar o
+    // formato do `DECIMAL` seria testar o driver; o que importa é o valor ser
+    // exato.
+    expect(Number(soma!.total)).toBe(1);
+    expect(String(soma!.total)).not.toMatch(/999|0001/);
+  });
+
+  it('INV-40: o agregado mensal é único por usuário, mês e motor', async () => {
+    // A restrição é o que torna o script de retenção idempotente por mês: o corte
+    // é móvel, e um mês parcial pode ser agregado hoje e completado depois. Sem a
+    // unicidade, a segunda execução criaria uma linha nova em vez de somar.
+    const a = await registrar('retencao-unico@example.com');
+    const mes = new Date('2026-02-01T00:00:00Z');
+
+    await prismaCru.aiUsageMonthly.create({
+      data: { userId: a.userId, month: mes, engine: 'cli', calls: 2, outputTokens: 200, costUsd: 0.2 },
+    });
+
+    await expect(
+      prismaCru.aiUsageMonthly.create({
+        data: { userId: a.userId, month: mes, engine: 'cli', calls: 1, outputTokens: 100, costUsd: 0.1 },
+      })
+    ).rejects.toThrow();
+
+    // O caminho certo é somar.
+    const somado = await prismaCru.aiUsageMonthly.update({
+      where: { userId_month_engine: { userId: a.userId, month: mes, engine: 'cli' } },
+      data: { calls: { increment: 1 }, costUsd: { increment: 0.1 } },
+    });
+
+    expect(somado.calls).toBe(3);
+    expect(Number(somado.costUsd)).toBeCloseTo(0.3, 6);
+  });
+
+  it('INV-40: motores diferentes agregam SEPARADO', async () => {
+    // `api` e `cli` têm custo por pergunta em ordens de grandeza diferentes —
+    // ~$0.02 contra ~$0.08. Somar os dois num total esconderia justamente a
+    // informação que faz alguém trocar de motor.
+    const a = await registrar('retencao-motores@example.com');
+    const mes = new Date('2026-03-01T00:00:00Z');
+
+    for (const engine of ['api', 'cli']) {
+      await prismaCru.aiUsageMonthly.create({
+        data: { userId: a.userId, month: mes, engine, calls: 1, outputTokens: 50, costUsd: 0.02 },
+      });
+    }
+
+    const linhas = await prismaCru.aiUsageMonthly.findMany({
+      where: { userId: a.userId, month: mes },
+      orderBy: { engine: 'asc' },
+    });
+
+    expect(linhas.map((l) => l.engine)).toEqual(['api', 'cli']);
+  });
+});

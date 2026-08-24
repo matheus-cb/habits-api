@@ -148,6 +148,7 @@ describe('INV-37 — a configuração da aplicação chega ao container', () => 
       ['ASSISTANT_ACTION_TTL_MINUTES', '30'],
       ['ANTHROPIC_MODEL', 'claude-opus-5'],
       ['ASSISTANT_MODEL', 'claude-sonnet-5'],
+      ['TELEMETRY_RETENTION_DAYS', '90'],
       ['AI_TIMEOUT_MS', '20_000'],
       ['AI_MAX_OUTPUT_TOKENS', '1024'],
     ];
