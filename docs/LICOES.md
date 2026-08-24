@@ -109,6 +109,55 @@ serve. Só um caso que registra uma rejeição de propósito chega lá.
 **Regra que precisa nomear cada categoria não escala; procedimento externo ao ato,
 sim.** É por isso que a Regra 1 é a que mais importa.
 
+## Conclusão errada encerra a busca — e por isso custa mais que medição errada
+
+**Medição errada eu repito. Conclusão errada eu paro.**
+
+Medi que `--allowedTools "mcp__habits__query"` não impedia o modelo de chamar uma
+tool fora da lista, e concluí *"a flag não restringe"*. A medição estava certa e a
+conclusão errada — `--allowedTools` governa o que passa **sem pedir aprovação**, não
+o que existe.
+
+E o custo não foi o erro: foi **eu parar de procurar**. Existe `--tools`, que
+restringe o conjunto embutido, e eu não a procurei porque já tinha concluído que a
+categoria "flag que restringe" não existia. Sem `--tools`, o subprocesso tinha
+`Read`/`Write`/`Bash` com o `HOME` do usuário do sistema — a pior falha da safra.
+
+Uma medição errada é **auto-corrigível**, porque você a repete. Uma conclusão errada
+é **auto-selante**, porque ela remove o motivo de repetir.
+
+O que a fecha: escrever a conclusão **e o que ela implica que não existe.** "A flag
+não restringe" é conclusão; "portanto não há flag que restrinja" é a implicação, e é
+ela que fecha a busca. Escritas lado a lado, a segunda pede verificação — porque é
+afirmação de **ausência**, e afirmação de ausência é o formato que não se aceita sem
+conferir.
+
+## Onde está a fronteira agora? — e por que isso não é uma regra de julgamento
+
+As invariantes que governavam o servidor não governavam o subprocesso, porque a
+fronteira do sistema deixou de coincidir com a API no commit em que o `spawn`
+entrou. Nenhuma das regras acima faz essa pergunta: elas cobrem se a verificação
+olha certo, não se o perímetro mudou de lugar.
+
+"Pergunte onde está a fronteira" pediria julgamento no instante, e é a categoria que
+esta safra mostrou que falha. Mas a fronteira **não se move por vontade** — ela se
+move quando entra um novo principal de execução, e isso tem assinatura sintática.
+Grepável.
+
+INV-41 é a quarta aplicação do mesmo procedimento — depois de rotas (INV-26),
+tabelas (INV-29) e tabelas em cascade (INV-32): **toda ocorrência que cria executor
+está classificada, ou reprova.**
+
+E o campo que faz o trabalho é `credencial`. Não `superficie`, não `governadaPor`:
+escrever *"o `HOME` de quem instalou o CLI"* ao lado de *"apenas tools MCP"* não
+sobrevive à leitura sem alguém notar a distância entre as duas colunas.
+
+O meu erro não foi falta de cuidado. Quando criei a role somente-leitura eu estava
+pensando **em segurança**, e respondi com grant explícito, RLS, política e duas
+invariantes. Quando criei o subprocesso eu estava pensando **em custo e
+autenticação**. O perímetro mudou nas duas vezes; eu só o vi na vez em que o assunto
+do dia já era perímetro.
+
 ## Quando a correção cria o problema seguinte
 
 A porta fixa fechou a colisão por reciclagem e **criou** o reuso de origem: três
