@@ -109,6 +109,7 @@ prompt. Detalhes em `docs/ASSISTENTE.md`.
 | **INV-35** | Toda chamada ao modelo é registrada — tokens, duração, desfecho; **nunca** conteúdo | `prisma/schema.prisma` → `AiCall` |
 | **INV-36** | Teto diário de tokens recusa **antes** de chamar o modelo | `assistant/orcamento.ts` |
 | **INV-37** | Variável que o `env.ts` lê chega ao container, com o **mesmo** default | `docker-compose.yml` |
+| **INV-38** | A superfície do chat **não tem** tool de escrita; `propor` grava, não executa | `src/mcp/tools-assistente.ts` |
 
 INV-34 confere a allowlist duas vezes, e a que conta é a da **aprovação**: entre
 propor e aprovar passam minutos, e o que vale é a lista do momento da execução.

@@ -11,8 +11,9 @@ import {
 } from '@/utils/errors';
 import { logger } from '@/utils/logger';
 import { toDayKey, utcStartOfDay } from '@/utils/helpers';
+import { cliDisponivel, MotorCli } from './motor-cli';
 import { orcamentoDoDia } from './orcamento';
-import { promptDoSistema } from './prompt';
+import { promptDoSistema, promptDoSistemaParaCli } from './prompt';
 import { AGIR, CONSULTAR } from './tools';
 
 /**
@@ -77,8 +78,28 @@ export class AssistantService {
     private readonly cliente: Anthropic | null = aiConfigured()
       ? new Anthropic({ apiKey: env.ANTHROPIC_API_KEY })
       : null,
-    private readonly repo: AssistantRepository = assistantRepository
+    private readonly repo: AssistantRepository = assistantRepository,
+    private readonly motorCli: MotorCli = new MotorCli()
   ) {}
+
+  /**
+   * Qual motor atende, e a ordem é deliberada.
+   *
+   * A chave da API ganha quando existe: ela é ~10x mais barata e ~3x mais rápida
+   * que o CLI (medido: $0.02/3s contra $0.16/10s), e roda no container. O CLI é o
+   * caminho para quem não quer uma chave separada — usa a assinatura do Claude
+   * Code, ao custo de latência, de consumo e de só funcionar onde o CLI está
+   * instalado e autenticado.
+   *
+   * Ordem e não configuração explícita porque a escolha certa é sempre a mesma:
+   * se há chave, use a chave. Uma variável para inverter isso seria uma chance de
+   * alguém rodar o caminho caro sem querer.
+   */
+  private motor(): 'api' | 'cli' | null {
+    if (this.cliente) return 'api';
+    if (cliDisponivel().ok) return 'cli';
+    return null;
+  }
 
   /**
    * Sem chave, o chat NÃO tem alternativa determinística — ao contrário do resumo
@@ -88,13 +109,16 @@ export class AssistantService {
    * motivo legível e o resto do app segue idêntico (INV-15). Fingir uma resposta
    * seria pior que recusar.
    */
-  disponivel(): { ok: boolean; motivo?: string } {
-    if (!this.cliente) {
+  disponivel(): { ok: boolean; motivo?: string; motor?: 'api' | 'cli' } {
+    const motor = this.motor();
+
+    if (!motor) {
       return {
         ok: false,
         motivo:
-          'O assistente precisa de uma chave da Anthropic. Configure ANTHROPIC_API_KEY no servidor. ' +
-          'Todo o resto do app funciona sem ela.',
+          'O assistente precisa de um motor: ou ANTHROPIC_API_KEY (chave da Anthropic), ou ' +
+          'CLAUDE_CLI_PATH apontando para o `claude` instalado e autenticado nesta máquina. ' +
+          'Todo o resto do app funciona sem os dois.',
       };
     }
     if (!this.gatewayDeQuery) {
@@ -104,7 +128,7 @@ export class AssistantService {
           'O assistente precisa da conexão somente-leitura do banco. Configure DATABASE_URL_READONLY.',
       };
     }
-    return { ok: true };
+    return { ok: true, motor };
   }
 
   /** Cria a conversa ou confere que ela é de quem diz ser. */
@@ -145,7 +169,7 @@ export class AssistantService {
     mensagem: string;
     emitir: Emitir;
   }): Promise<void> {
-    const { userId, conversationId, mensagem, emitir } = input;
+    const { userId, token, conversationId, mensagem, emitir } = input;
 
     const disponibilidade = this.disponivel();
     if (!disponibilidade.ok) {
@@ -155,14 +179,129 @@ export class AssistantService {
     const orcamento = await orcamentoDoDia(userId);
     if (orcamento.excedido) {
       throw new TooManyRequestsError(
-        `Teto diário do assistente atingido (${orcamento.teto} tokens de saída). ` +
-          'Ele volta à meia-noite UTC.'
+        orcamento.motivo === 'custo'
+          ? `Teto diário de custo atingido (US$ ${orcamento.tetoDeCusto}). Volta à meia-noite UTC.`
+          : `Teto diário atingido (${orcamento.teto} tokens de saída). Volta à meia-noite UTC.`
       );
     }
 
     await this.gravar(conversationId, 'user', mensagem);
 
+    if (this.motor() === 'cli') {
+      await this.responderPeloCli({ userId, token, conversationId, mensagem, emitir });
+      return;
+    }
+
     await this.rodarLaco({ userId, conversationId, emitir });
+  }
+
+  /**
+   * O caminho do CLI: uma invocação, o laço de ferramentas é dele.
+   *
+   * A escrita não para no meio como no motor da API — ela **não existe**. O
+   * subprocesso alcança `/mcp/assistente`, que só tem `consultar` e `propor`, e
+   * `propor` grava uma `PendingAction`. Então o CLI termina normalmente e as
+   * propostas que ele criou são lidas do banco depois.
+   *
+   * É por isso que este caminho não emite `texto` em pedaços: o CLI devolve a
+   * resposta inteira ao terminar. Streaming de verdade exigiria
+   * `--output-format stream-json`, e está declarado como trabalho seguinte em
+   * `docs/ASSISTENTE.md`.
+   */
+  private async responderPeloCli(input: {
+    userId: string;
+    token: string;
+    conversationId: string;
+    mensagem: string;
+    emitir: Emitir;
+  }): Promise<void> {
+    const conversa = await this.repo.acharConversa(input.conversationId);
+    const inicio = Date.now();
+
+    // Quais propostas já existiam. A diferença depois é o que ESTA mensagem
+    // criou — comparar por instante seria frágil com relógio de milissegundo, e
+    // o conjunto de ids é exato.
+    const antes = new Set(
+      (await this.repo.acoesDaConversa(input.conversationId)).map((acao) => acao.id)
+    );
+
+    input.emitir({ tipo: 'ferramenta', nome: 'claude-code', resumo: 'pensando na sua assinatura' });
+
+    let resposta;
+    try {
+      resposta = await this.motorCli.perguntar({
+        token: input.token,
+        conversationId: input.conversationId,
+        sessionId: conversa?.cliSessionId ?? null,
+        mensagem: input.mensagem,
+        sistema: promptDoSistemaParaCli(toDayKey(utcStartOfDay())),
+      });
+    } catch (erro) {
+      await this.repo.registrarChamada({
+        userId: input.userId,
+        conversationId: input.conversationId,
+        model: 'claude-code-cli',
+        inputTokens: 0,
+        outputTokens: 0,
+        toolCalls: 0,
+        durationMs: Date.now() - inicio,
+        outcome: erro instanceof Error ? `erro:${erro.name}` : 'erro:desconhecido',
+        engine: 'cli',
+      });
+      throw erro;
+    }
+
+    await this.repo.registrarChamada({
+      userId: input.userId,
+      conversationId: input.conversationId,
+      model: 'claude-code-cli',
+      inputTokens: 0,
+      outputTokens: resposta.tokensDeSaida,
+      toolCalls: resposta.turnos,
+      durationMs: resposta.duracaoMs,
+      outcome: resposta.desfecho,
+      engine: 'cli',
+      costUsd: resposta.custoUsd,
+    });
+
+    if (resposta.sessionId.length > 0 && resposta.sessionId !== conversa?.cliSessionId) {
+      await this.repo.guardarSessaoDoCli(input.conversationId, resposta.sessionId);
+    }
+
+    if (resposta.texto.length > 0) {
+      input.emitir({ tipo: 'texto', delta: resposta.texto });
+      // O histórico do MODELO vive na sessão do CLI; este registro é para a
+      // interface poder reabrir a conversa. Guardar no formato de blocos mantém
+      // um só caminho de leitura no `paraInterface`.
+      await this.gravar(
+        input.conversationId,
+        'assistant',
+        JSON.stringify([{ type: 'text', text: resposta.texto }])
+      );
+    }
+
+    const novas = (await this.repo.acoesDaConversa(input.conversationId)).filter(
+      (acao) => !antes.has(acao.id)
+    );
+
+    for (const acao of novas) {
+      input.emitir({
+        tipo: 'acao',
+        acao: {
+          id: acao.id,
+          metodo: acao.metodo,
+          path: acao.path,
+          corpo: acao.corpo === null ? null : (JSON.parse(acao.corpo) as unknown),
+          resumo: acao.resumo,
+          expiresAt: acao.expiresAt.toISOString(),
+        },
+      });
+    }
+
+    input.emitir({
+      tipo: 'fim',
+      motivo: novas.length > 0 ? 'aguardando_aprovacao' : 'completo',
+    });
   }
 
   /**
@@ -175,7 +314,28 @@ export class AssistantService {
    * Sem isto, aprovar seria um beco: a pessoa clicaria, a escrita aconteceria, e
    * ela teria de escrever "e agora?" para o assistente perceber.
    */
-  async retomar(input: { userId: string; conversationId: string; emitir: Emitir }): Promise<void> {
+  async retomar(input: {
+    userId: string;
+    token: string;
+    conversationId: string;
+    emitir: Emitir;
+  }): Promise<void> {
+    if (this.motor() === 'cli') {
+      // No CLI a retomada é uma mensagem como outra: o resultado da ação aprovada
+      // já está no banco, e o modelo o descobre consultando. Não há `tool_result`
+      // a devolver porque o laço não é nosso.
+      //
+      // A mensagem é sintética e marcada como tal. Inventar uma fala da pessoa
+      // ("obrigado, aplicou?") poluiria o histórico com algo que ela não disse.
+      await this.responderPeloCli({
+        ...input,
+        mensagem:
+          '[sistema] A pessoa decidiu sobre a sua última proposta. Confira o resultado ' +
+          'consultando os dados e diga em uma frase o que ficou. Se ela recusou, não insista.',
+      });
+      return;
+    }
+
     await this.rodarLaco(input);
   }
 

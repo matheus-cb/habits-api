@@ -71,12 +71,36 @@ app.get('/health', async (_req, res) => {
 // responder uma pergunta é uso normal.
 app.use('/api/v1', limitarTaxa({ janelaMs: 60_000, maximo: 300, nome: 'a API' }), routes);
 
-// Servidor MCP, para assistente externo. Fora de /api/v1 de propósito: não é REST
-// e não versiona junto com a API HTTP.
+// A superfície RESTRITA do assistente vem ANTES da completa, e a ordem é a
+// garantia.
+//
+// `app.use('/mcp', …)` casa com QUALQUER caminho sob `/mcp`. Montada depois, esta
+// rota só seria alcançada por o router completo não ter rota para `/assistente` —
+// garantia por ausência, que uma rota nova lá dentro apagaria sem ninguém notar.
+// Antes, ela ganha por precedência.
+//
+// Rota separada e não um parâmetro na mesma: parâmetro seria uma verificação em
+// tempo de execução decidindo se a escrita existe, e o ponto do desenho é a
+// escrita NÃO existir. Ver `PerfilMcp` em `mcp/server.ts`.
+app.use(
+  '/mcp/assistente',
+  limitarTaxa({ janelaMs: 60_000, maximo: 600, nome: 'o MCP do assistente' }),
+  createMcpRouter(undefined, { perfil: 'assistente' })
+);
+
+// Servidor MCP completo, para assistente externo (Claude Code, Claude Desktop).
+// Fora de /api/v1 de propósito: não é REST e não versiona junto com a API HTTP.
 //
 // Por IP, contra enxurrada sem token. O teto POR USUÁRIO — o que contém o vetor
 // real da primitiva `query` — está dentro do router, depois do `authenticate`.
-app.use('/mcp', limitarTaxa({ janelaMs: 60_000, maximo: 120, nome: 'o MCP' }), createMcpRouter());
+//
+// 600 e não 120: num serviço acessado pelo loopback, teto por IP é teto do
+// PROCESSO — ele não separa ninguém de ninguém, e a primitiva `request` gera
+// tráfego que compete com o orçamento de quem conversa. Apertá-lo pune uso
+// legítimo sem conter nada que o teto por usuário já não contenha. O teste de
+// rajada do smoke (70 chamadas) esgotava 120 e fazia a execução SEGUINTE falhar
+// inteira dentro do mesmo minuto.
+app.use('/mcp', limitarTaxa({ janelaMs: 60_000, maximo: 600, nome: 'o MCP' }), createMcpRouter());
 
 // 404 handler
 app.use((_req, res) => {

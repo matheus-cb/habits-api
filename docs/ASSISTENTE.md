@@ -63,6 +63,73 @@ aceitável enquanto o cliente era o Claude Code, que tem registro próprio e cuj
 conta é de quem conversa. Com chat próprio, um laço mal conduzido gasta dinheiro do
 servidor e ninguém saberia.
 
+## Dois motores, e a ordem é deliberada
+
+| | Chave da API | Assinatura do Claude Code |
+|---|---|---|
+| Configuração | `ANTHROPIC_API_KEY` | `CLAUDE_CLI_PATH` |
+| Custo por pergunta | ~$0.02 | **$0.17–0.20** (medido) |
+| Tempo por pergunta | ~3s | **11–28s** (medido) |
+| Roda no container | sim | **não** — o CLI não existe na imagem |
+| Streaming | por bloco | resposta inteira no fim |
+
+A chave ganha quando existe, e a ordem não é configurável: se há chave, use a
+chave. Uma variável para inverter seria uma chance de rodar o caminho caro sem
+querer.
+
+### O que eu supus errado sobre o motor CLI, e medi
+
+**Reaproveitar a sessão não barateia.** A hipótese era que `--resume` faria o
+contexto virar `cache_read` e o custo cair. Medido: primeira mensagem $0.2475,
+retomada **$0.3261**. Subiu.
+
+O custo é **por volta de ferramenta** — cada volta relê os ~32k tokens de contexto
+do próprio CLI (system prompt, definições de tool, `CLAUDE.md` do diretório). Cinco
+voltas custam cinco leituras.
+
+O que a sessão dá, e é o que importa: **o fio da conversa**. Retomando com
+`--resume`, o CLI já tem o histórico e o servidor não reenvia nada.
+
+**O que barateia é cortar voltas.** Dar o esquema do banco no prompt em vez de
+deixá-lo ler `habits://schema`: $0.2475/12.2s → **$0.1642/9.6s**. Um terço mais
+barato. É por isso que o perfil `assistente` não registra os recursos de
+descoberta — lê-los custaria a volta que o prompt evita.
+
+**`--allowedTools` NÃO restringe.** Com `--allowedTools "mcp__habits__query"`, o
+modelo chamou `request` e a chamada chegou ao servidor. Só `--disallowedTools`
+bloqueia, e depender dela faria tool nova nascer chamável.
+
+Por isso a defesa é topológica: `/mcp/assistente` **não tem** tool de escrita, só
+`consultar` e `propor`. As duas flags vão junto como camadas, e nenhuma delas é a
+garantia.
+
+**O ambiente reduzido quebrou a autenticação.** O subprocesso roda com `env`
+mínimo por segurança — não precisa do `DATABASE_URL` nem do `JWT_SECRET`. Com
+`HOME`+`PATH`+`TERM` o CLI respondia `Not logged in · Please run /login`: a
+credencial vive no keychain do macOS, e o keychain resolve o usuário por **`USER`**.
+Bissecionado — `USER` sozinha resolve; `XPC_SERVICE_NAME`, `LOGNAME` e `SHELL` não
+são necessárias.
+
+O sintoma não menciona ambiente nenhum. Parece que a pessoa não fez login.
+
+### Verificado à mão, ponta a ponta
+
+Os testes de INV-38 provam o que não depende do modelo: a superfície sem escrita, o
+`propor` que grava e não executa, a conferência de dono, e o arquivo de
+configuração apagado. **Não** invocam o CLI — cada invocação custa da assinatura de
+quem roda a suíte e leva de 11 a 28 segundos, e suíte abandonada é pior que suíte
+incompleta.
+
+O fluxo completo foi verificado à mão, com a API rodando no host:
+
+1. *"Quantos hábitos ativos eu tenho e qual tem a melhor aderência?"* → 4 hábitos,
+   Academia 85% (11 de 13), com os outros três listados. 28s, $0.20.
+2. *"Tira a segunda-feira do Meditar 10min"* → **"Não alterei nada — deixei a
+   sugestão para você aprovar"**, mais um cartão. O banco continuava `{1,2,3,4,5}`.
+3. Aprovação → `{2,3,4,5}`, e a revisão gravada com `changedVia: assistant`.
+4. Retomada → *"Você aprovou: o Meditar 10min agora está agendado de terça a
+   sexta."*
+
 ## Sem chave
 
 O chat responde recusando, com o motivo legível, e o resto do app fica idêntico.

@@ -9,6 +9,7 @@ import { createHabitsGateway, ReadOnlyHabitsGateway } from './gateway';
 import { registerReadOnlyTools } from './tools';
 import { registrarFechamento } from './fechamentos';
 import { registrarPrimitivas, registrarRecursos } from './primitivas';
+import { CABECALHO_DE_CONVERSA, registrarToolsDoAssistente } from './tools-assistente';
 import { criarGatewayDeQuery, GatewayDeQuery } from './query';
 import { GatewayDeRequest, HttpRequestGateway } from './request';
 
@@ -24,12 +25,33 @@ import { GatewayDeRequest, HttpRequestGateway } from './request';
  * A autenticação é o mesmo `authenticate` das rotas HTTP: o MCP não tem porta
  * própria de identidade (INV-10).
  */
+/**
+ * Dois PERFIS, e a diferença é topológica.
+ *
+ * - `completo` — as tools nomeadas mais as primitivas `query` e `request`. Para o
+ *   Claude Code / Claude Desktop, onde **existe humano confirmando** cada chamada.
+ * - `assistente` — só `consultar` e `propor`. Para o chat do dashboard rodando
+ *   sobre `claude -p`, onde NÃO existe humano confirmando: escrever é impossível
+ *   porque não há tool que escreva.
+ *
+ * A separação é por perfil e não por flag do cliente porque `--allowedTools` do
+ * CLI **não restringe** — medido: com só `query` permitida, o modelo chamou
+ * `request` e a chamada chegou ao servidor. Depender de `--disallowedTools` faria
+ * tool nova nascer chamável, que é a classe que INV-26 fechou para rotas.
+ */
+export type PerfilMcp = 'completo' | 'assistente';
+
 export function createMcpRouter(
   gatewayFactory: () => ReadOnlyHabitsGateway = createHabitsGateway,
   {
     gatewayDeQuery = criarGatewayDeQuery(),
     gatewayDeRequest = new HttpRequestGateway(),
-  }: { gatewayDeQuery?: GatewayDeQuery | null; gatewayDeRequest?: GatewayDeRequest } = {}
+    perfil = 'completo',
+  }: {
+    gatewayDeQuery?: GatewayDeQuery | null;
+    gatewayDeRequest?: GatewayDeRequest;
+    perfil?: PerfilMcp;
+  } = {}
 ): Router {
   // `criarGatewayDeQuery()` no parâmetro default é avaliado quando ESTA função é
   // chamada — uma vez, na montagem do app — e não por requisição. A posição é
@@ -85,9 +107,33 @@ export function createMcpRouter(
       }
     );
 
-    registerReadOnlyTools(server, gatewayFactory(), userId);
-    registrarPrimitivas(server, { gatewayDeQuery, gatewayDeRequest, userId, token });
-    registrarRecursos(server, { gatewayDeQuery, userId, openapi: swaggerDocument });
+    if (perfil === 'assistente') {
+      // Sem tool de escrita, e sem os recursos de descoberta: o esquema vai no
+      // prompt do subprocesso porque cada volta de ferramenta relê o contexto
+      // inteiro do CLI — medido em ~32k tokens por volta. Ler `habits://schema`
+      // custaria uma volta inteira para descobrir nomes de coluna.
+      const conversationId = String(req.headers[CABECALHO_DE_CONVERSA] ?? '');
+
+      if (!gatewayDeQuery || conversationId.length === 0) {
+        res.status(400).json({
+          jsonrpc: '2.0',
+          error: {
+            code: -32000,
+            message: gatewayDeQuery
+              ? `O perfil assistente exige o cabeçalho ${CABECALHO_DE_CONVERSA}.`
+              : 'O perfil assistente exige DATABASE_URL_READONLY.',
+          },
+          id: null,
+        });
+        return;
+      }
+
+      registrarToolsDoAssistente(server, { gatewayDeQuery, userId, conversationId });
+    } else {
+      registerReadOnlyTools(server, gatewayFactory(), userId);
+      registrarPrimitivas(server, { gatewayDeQuery, gatewayDeRequest, userId, token });
+      registrarRecursos(server, { gatewayDeQuery, userId, openapi: swaggerDocument });
+    }
 
     const transport = new StreamableHTTPServerTransport({
       // Sem sessão: ver o comentário do arquivo.

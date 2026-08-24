@@ -147,12 +147,23 @@ model Checkin {
 /// antes" e assim reescrever o contexto de uma decisão. É a mesma razão de o
 /// `userId` vir do JWT e não do corpo (INV-10).
 model Conversation {
-  id        String   @id @default(uuid())
-  userId    String
+  id           String   @id @default(uuid())
+  userId       String
   /// Primeira linha da primeira mensagem, para a lista de conversas.
-  title     String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  title        String
+  /// A sessão do CLI do Claude Code, quando o motor é o CLI.
+  ///
+  /// Guardada porque é ela que carrega o FIO da conversa: retomando com
+  /// `--resume`, o CLI já tem o histórico e o servidor não reenvia nada. Medido:
+  /// uma pergunta de acompanhamento ("e qual deles tem a maior sequência?") é
+  /// respondida certo sem contexto do nosso lado.
+  ///
+  /// O que ela NÃO faz é baratear: retomar mediu MAIS caro que abrir nova
+  /// ($0.25 → $0.33), porque o custo é por volta de ferramenta e cada volta relê
+  /// os ~32k tokens de contexto do próprio CLI.
+  cliSessionId String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   user     User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
   messages ConversationMessage[]
@@ -254,6 +265,14 @@ model AiCall {
   durationMs     Int
   /// `stop_reason` da API, ou o código do erro.
   outcome        String
+  /// Qual motor atendeu: `api` (chave da Anthropic) ou `cli` (Claude Code).
+  engine         String   @default("api")
+  /// Custo em dólares, quando o motor informa. O SDK não informa — ele devolve
+  /// tokens e o preço muda; o CLI devolve `total_cost_usd` calculado.
+  ///
+  /// `Decimal` e não `Float`: somar centavos em ponto flutuante acumula erro, e
+  /// esta coluna existe para virar um total que a pessoa vai ler.
+  costUsd        Decimal? @db.Decimal(12, 6)
   createdAt      DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)

@@ -236,6 +236,16 @@ export const ROTAS_NEGADAS: readonly { metodo: string; padrao: string; motivo: s
     motivo: 'recursão: uma chamada abriria outra sessão MCP dentro desta',
   },
   {
+    metodo: 'POST',
+    padrao: '/mcp/assistente',
+    motivo: 'recursão, e a superfície restrita não tem escrita a alcançar de todo modo',
+  },
+  {
+    metodo: '*',
+    padrao: '/mcp/assistente',
+    motivo: 'o 405 do transporte sem sessão na superfície restrita',
+  },
+  {
     // `router.all('/')` responde 405 a tudo que não é POST, e o Express registra
     // isso como o método `_all`. O enumerador o traduz para `*`, então a entrada
     // que o classifica também precisa ser `*` — não GET e DELETE, que foi o que
