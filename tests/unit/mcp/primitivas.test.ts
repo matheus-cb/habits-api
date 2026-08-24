@@ -567,3 +567,114 @@ describe('recursos de descoberta — derivados, não copiados', () => {
     expect(fonte).not.toMatch(/PrismaClient/);
   });
 });
+
+describe('INV-33 — a classificação de falha de transporte é DERIVADA', () => {
+  /**
+   * O CI achou o que a enumeração não cobria.
+   *
+   * A primeira versão listava `ECONNRESET`, `ECONNREFUSED` e `EPIPE` — os códigos
+   * que eu havia observado no macOS. O CI reprovou no Linux com
+   * `SocketError: other side closed`, que é do undici e tem código
+   * `UND_ERR_SOCKET`: o retry não disparou.
+   *
+   * A correção inverte a pergunta. `fetch` só lança em falha de TRANSPORTE —
+   * resposta HTTP de erro volta como `Response`, não como exceção. Então a
+   * pergunta não é "qual código?" e sim "há motivo para NÃO repetir?", e a
+   * resposta é só cancelamento e timeout.
+   *
+   * Estes casos exercitam a função pelo comportamento do gateway, com `fetch`
+   * dublado, porque reproduzir cada código real exigiria uma rede que falhe de
+   * seis maneiras diferentes.
+   */
+  function erroDeFetch(cause: unknown, name = 'TypeError'): Error {
+    const erro = new Error('fetch failed');
+    erro.name = name;
+    (erro as Error & { cause?: unknown }).cause = cause;
+    return erro;
+  }
+
+  async function tentar(erro: Error, metodo: 'GET' | 'POST') {
+    let chamadas = 0;
+    const original = global.fetch;
+    global.fetch = jest.fn(async () => {
+      chamadas += 1;
+      if (chamadas === 1) throw erro;
+      return { status: 200, text: async () => '{}' } as Response;
+    }) as unknown as typeof fetch;
+
+    try {
+      const gateway = new HttpRequestGateway('http://127.0.0.1:1');
+      const resultado = await gateway
+        .chamar({ token: TOKEN, metodo, path: metodo === 'GET' ? '/api/v1/habits' : '/api/v1/habits' })
+        .then(() => 'recuperou' as const)
+        .catch(() => 'falhou' as const);
+      return { resultado, chamadas };
+    } finally {
+      global.fetch = original;
+    }
+  }
+
+  it('INV-33: GET se recupera de `UND_ERR_SOCKET` — o código que o CI achou', async () => {
+    // Este é o caso que a enumeração perdia. `other side closed` é exatamente o
+    // que um servidor reaberto na mesma porta produz.
+    const { resultado, chamadas } = await tentar(
+      erroDeFetch({ code: 'UND_ERR_SOCKET', name: 'SocketError', message: 'other side closed' }),
+      'GET'
+    );
+
+    expect(resultado).toBe('recuperou');
+    expect(chamadas).toBe(2);
+  });
+
+  it('INV-33: GET se recupera de ECONNRESET — o caso que eu já cobria', async () => {
+    const { resultado, chamadas } = await tentar(erroDeFetch({ code: 'ECONNRESET' }), 'GET');
+
+    expect(resultado).toBe('recuperou');
+    expect(chamadas).toBe(2);
+  });
+
+  it('INV-33: GET se recupera de um código DESCONHECIDO — a direção segura', async () => {
+    // O ponto da inversão: código novo do undici passa a ser coberto por padrão.
+    // Com a enumeração, cada código novo exigiria alguém notar e acrescentar.
+    const { resultado, chamadas } = await tentar(
+      erroDeFetch({ code: 'UND_ERR_ALGO_QUE_NAO_EXISTE_AINDA' }),
+      'GET'
+    );
+
+    expect(resultado).toBe('recuperou');
+    expect(chamadas).toBe(2);
+  });
+
+  it('INV-33: adversário — timeout NÃO é repetido', async () => {
+    // Repetir depois de esperar 15s dobra a espera sem consertar nada.
+    for (const causa of [
+      { code: 'UND_ERR_HEADERS_TIMEOUT' },
+      { code: 'UND_ERR_BODY_TIMEOUT' },
+      { code: 'UND_ERR_CONNECT_TIMEOUT' },
+      { name: 'TimeoutError' },
+    ]) {
+      const { resultado, chamadas } = await tentar(erroDeFetch(causa), 'GET');
+      expect(resultado).toBe('falhou');
+      expect(chamadas).toBe(1);
+    }
+  });
+
+  it('INV-33: adversário — cancelamento deliberado fica cancelado', async () => {
+    const { resultado, chamadas } = await tentar(
+      erroDeFetch({ name: 'AbortError' }, 'AbortError'),
+      'GET'
+    );
+
+    expect(resultado).toBe('falhou');
+    expect(chamadas).toBe(1);
+  });
+
+  it('INV-33: adversário — ESCRITA nunca é repetida, nem no caso mais claro', async () => {
+    // `ECONNRESET` não diz se a requisição chegou. O problema não é o efeito de
+    // cada rota, é não saber se a primeira foi aplicada.
+    const { resultado, chamadas } = await tentar(erroDeFetch({ code: 'ECONNRESET' }), 'POST');
+
+    expect(resultado).toBe('falhou');
+    expect(chamadas).toBe(1);
+  });
+});

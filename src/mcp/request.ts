@@ -497,16 +497,46 @@ export class HttpRequestGateway implements GatewayDeRequest {
 }
 
 /**
- * Falha de CONEXÃO, e não resposta de erro.
+ * Falha de transporte, e não de aplicação — DERIVADA em vez de enumerada.
  *
- * O `fetch` embrulha erros de rede num `TypeError: fetch failed` com o motivo
- * real em `cause`. Sem olhar a `cause`, um `AbortError` de timeout e um
- * `ECONNRESET` de socket obsoleto seriam indistinguíveis — e repetir depois de um
- * timeout de 15s dobraria a espera em vez de consertar nada.
+ * ## Por que a primeira versão estava errada
+ *
+ * Ela listava `ECONNRESET`, `ECONNREFUSED` e `EPIPE` — os códigos que eu havia
+ * **observado**. O CI reprovou com `SocketError: other side closed`, que é do
+ * undici e tem outro código: o retry não disparou, e o teste que afirma a
+ * recuperação falhou no Linux depois de passar no macOS.
+ *
+ * É o padrão desta safra outra vez: eu enumerei os casos que tinha em mão em vez
+ * de descrever a classe.
+ *
+ * ## A classe, e como ela se descreve sozinha
+ *
+ * `fetch` **só lança em falha de transporte**. Resposta HTTP de erro — 400, 500 —
+ * volta como `Response`, não como exceção. Então qualquer exceção do `fetch` é
+ * problema de conexão, e a pergunta certa não é "qual código?" e sim "há motivo
+ * para NÃO repetir?".
+ *
+ * Há um: cancelamento e timeout. Repetir depois de esperar 15 segundos dobra a
+ * espera sem consertar nada, e um cancelamento deliberado deve ficar cancelado.
+ * Esses são a exceção, e são poucos e nomeados.
+ *
+ * Invertida assim, um código de erro novo do undici passa a ser coberto por
+ * padrão — que é a direção segura para um retry restrito a `GET`.
  */
 function ehFalhaDeConexao(erro: unknown): boolean {
-  const causa = (erro as { cause?: { code?: string } } | undefined)?.cause;
-  return causa?.code === 'ECONNRESET' || causa?.code === 'ECONNREFUSED' || causa?.code === 'EPIPE';
+  const causa = (erro as { cause?: { code?: string; name?: string } } | undefined)?.cause;
+  const nome = (erro as { name?: string } | undefined)?.name;
+
+  const ehCancelamento =
+    nome === 'AbortError' ||
+    nome === 'TimeoutError' ||
+    causa?.name === 'AbortError' ||
+    causa?.name === 'TimeoutError' ||
+    causa?.code === 'UND_ERR_HEADERS_TIMEOUT' ||
+    causa?.code === 'UND_ERR_BODY_TIMEOUT' ||
+    causa?.code === 'UND_ERR_CONNECT_TIMEOUT';
+
+  return !ehCancelamento;
 }
 
 /**

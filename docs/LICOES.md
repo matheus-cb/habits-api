@@ -127,6 +127,23 @@ Duas coisas a tirar:
    o nome do teste e o erro — a informação que faltou na primeira ocorrência e que
    custou quatro rodadas de hipótese.
 
+## Enumerar os casos que se tem em mão, em vez de descrever a classe
+
+O retry do gateway classificava falha de conexão por uma **lista** de códigos:
+`ECONNRESET`, `ECONNREFUSED`, `EPIPE` — os que eu havia observado no macOS. O CI
+reprovou no Linux com `SocketError: other side closed`, do undici, código
+`UND_ERR_SOCKET`. O retry não disparou, e o teste que afirma a recuperação falhou
+num ambiente depois de passar no outro.
+
+A correção **inverte a pergunta**. `fetch` só lança em falha de transporte —
+resposta HTTP de erro volta como `Response`, não como exceção. Então a pergunta não
+é "qual código?" e sim "há motivo para NÃO repetir?", e a resposta é curta:
+cancelamento e timeout.
+
+Invertida assim, código novo do undici passa a ser coberto por padrão — a direção
+segura para um retry restrito a `GET`. É a mesma forma de INV-26 e INV-29: o que se
+enumera é a exceção, e o default é o comportamento certo.
+
 ## Sobre depuração de flake
 
 Três coisas fizeram a única depuração de flake desta safra funcionar, e nenhuma foi
