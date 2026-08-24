@@ -32,7 +32,7 @@ de todos, negação de serviço por poucos dólares. Nenhuma das duas é errada,
 escolha atual é a que está no código. Registrada aqui porque a decisão é dele e não
 estava em lugar nenhum.
 
-### O deploy não existe
+### O deploy está preparado, mas não executado
 
 `docs/DEPLOY.md` é um **guia manual**, não um pipeline. Verificado:
 
@@ -42,9 +42,14 @@ estava em lugar nenhum.
 - `https://habits-api-production.up.railway.app/health` responde **404** — não há
   nada publicado
 
-Publicar exige `railway login`, que é autenticação em serviço terceiro e é dele.
-O que se pode preparar sem isso: os arquivos de configuração e um job de deploy no
-workflow disparado por push no `master`.
+Publicar exige `railway login` — autenticação numa conta dele, num serviço
+terceiro. Não é falta de permissão: é que a credencial e o custo são dele, e um
+serviço na internet com o nome dele é decisão dele.
+
+`railway.json` e `docs/DEPLOY-PRODUCAO.md` estão no repositório: build a partir do
+**Dockerfile** (o artefato que a Camada 3 valida, e não uma imagem inferida que
+nunca foi testada), healthcheck em `/health`, e a lista de variáveis com o que
+acontece se cada uma faltar. Sobram três comandos, todos dele.
 
 ## Limitações medidas, e que não dá para fechar aqui
 
