@@ -193,6 +193,15 @@ Fica declarado como o que é: o chat que vai para produção é o **menos medido
 dois. A primeira coisa a fazer quando houver uma chave é medir uma pergunta pelo
 SDK e pôr os dois números lado a lado.
 
+E o que muda é mais útil que "falta medir": **a estrutura de custo é diferente em
+espécie, não em escala.** O CLI relê ~32k tokens de contexto por volta de
+ferramenta; o SDK reenvia o histórico da conversa, que começa pequeno e cresce. Um
+tem custo quase constante por volta e o outro tem custo crescente por mensagem.
+
+A consequência: o teto em dólares calibrado no CLI pode estar ordens de grandeza
+folgado **ou** apertado no SDK, e **a direção não é previsível** sem medir. Não é um
+fator de correção — é outra curva.
+
 ## A superfície nativa do subprocesso é vazia (INV-39)
 
 `--allowedTools` governa **o que passa sem pedir aprovação**, não o que existe. Eu

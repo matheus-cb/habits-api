@@ -1,5 +1,10 @@
 # Guia de Deploy
 
+> **Não há pipeline.** Este arquivo é um guia MANUAL. Verificado: não existe
+> `railway.json` nem equivalente, o workflow do CI só valida, e
+> `habits-api-production.up.railway.app/health` responde **404** — não há nada
+> publicado. Ver `docs/PENDENCIAS.md`.
+
 Como fazer deploy da Habits API em produção.
 
 ## 🚀 Opções de Deploy

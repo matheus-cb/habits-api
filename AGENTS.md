@@ -112,6 +112,7 @@ prompt. Detalhes em `docs/ASSISTENTE.md`.
 | **INV-38** | A superfície do chat **não tem** tool de escrita; `propor` grava, não executa | `src/mcp/tools-assistente.ts` |
 | **INV-39** | A superfície **nativa** do subprocesso é vazia: só tools MCP | `src/assistant/motor-cli.ts` |
 | **INV-40** | `ai_calls` tem retenção por idade; o agregado mensal sobrevive | `scripts/reter-telemetria.ts` |
+| **INV-41** | Todo **executor** está classificado: quem, com que credencial, qual superfície | `src/config/executores.ts` |
 
 INV-34 confere a allowlist duas vezes, e a que conta é a da **aprovação**: entre
 propor e aprovar passam minutos, e o que vale é a lista do momento da execução.
