@@ -195,3 +195,50 @@ dividida por ferramenta é instrução que metade dos agentes não recebe.
 `scripts/check-agent-docs.sh` verifica a convenção, e tem uma checagem que o
 script do NotaFlow não tem: **invariante declarada sem teste que a cite pelo
 número reprova o gate**. Sem ela, a tabela cresce e a cobertura não.
+
+## Por que cada camada de validação existe
+
+O `AGENTS.md` lista os comandos; as razões ficam aqui, porque explicação lá custa do
+teto de prosa e regra sem explicação é preferência de estilo. Foi movido para cá por
+escolha, e não quando o gate reprovou — que é a diferença entre organizar e ceder.
+
+### Camada 3 é a única que prova o container
+
+O `Dockerfile` deste repositório já produziu **container em loop de reinício sem
+nada perceber**: seis defeitos empilhados (node 18-alpine com o engine de OpenSSL
+errado, sem migração no boot, `JWT_SECRET` de 25 caracteres contra o mínimo de 32 do
+Zod, sem healthcheck do Postgres, mounts de fonte sobre o `dist/`, e root).
+
+Camadas 1 e 2 carregam a aplicação **em processo**, com o `.env` de quem roda. Nenhum
+dos seis aparecia ali. É por isso que a Camada 3 não é redundante com a 2 — ela
+testa um artefato diferente.
+
+E foi ela que achou `DATABASE_URL_READONLY` ausente do compose: a migração criava a
+role e o RLS, o banco da imagem tinha tudo, e a primitiva `query` simplesmente não
+era registrada. Sintoma: `Tool query not found`.
+
+### O smoke vive num script, não no workflow
+
+**Uma cópia**, rodável nos dois lugares. Embutir os passos no YAML garante duas
+versões divergindo em silêncio — e a divergência é invisível justamente porque as
+duas "passam", cada uma testando algo levemente diferente.
+
+É a mesma razão da checagem 9 do gate documental, que compara os comandos `npm` do
+workflow com os do `verify.sh`.
+
+### O `verify` sai com código 3, e a Camada 3 não sobe a stack sozinha
+
+**Código 3** para "alguma camada não pôde rodar", distinto de 0 e de 1: automação
+que só lê exit status não deve confundir "pulou" com "passou". Verde falso é pior
+que vermelho, porque encerra a investigação.
+
+E a Camada 3 **não** sobe a stack por conta própria: `docker compose up --build`
+leva minutos e derrubaria a stack de quem chamou. Ela avisa e pula. O `CLAUDE.md`
+repete isso porque é o tipo de coisa que um agente faz sem perguntar.
+
+### O `verify` grava tudo em `.verify.log`
+
+Um flake ficou sem diagnóstico porque um `grep` do turno descartou o nome do teste
+que falhou. **Filtre a exibição, nunca a captura** — e a regra se pagou na primeira
+reincidência, quando o mesmo flake voltou e o log tinha o nome. Ver
+`docs/LICOES.md`.

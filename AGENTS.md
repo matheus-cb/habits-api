@@ -149,13 +149,10 @@ npm run lint              # --max-warnings=0
 npm run test:unit
 ```
 
-Três armadilhas, em `docs/DECISOES.md`: `build` passa com erro de tipo; `src/mcp/` e
-`src/schemas/` importam de `zod/v4` ou o `tsc` estoura o heap; migração precisa estar
-rastreada **e** atualizada (checagem 8 do gate mais `check:schema-drift`).
+Três armadilhas desta camada estão em `docs/DECISOES.md`.
 
-**Camada 2 — exige PostgreSQL.** Apaga as três tabelas, então roda em banco
-**separado** (`habits_test`, de `.env.test`); `tests/setup.ts` recusa qualquer nome
-que não termine em `_test`.
+**Camada 2 — exige PostgreSQL.** Roda em banco **separado** (`habits_test`);
+`tests/setup.ts` recusa nome que não termine em `_test`.
 
 ```bash
 npm run docker:up
@@ -165,30 +162,26 @@ npm run test:integration
 npm run test:integration:tz   # a MESMA suíte num fuso 17h deslocado
 ```
 
-**Camada 3 — exige a stack de pé.** Sobe a imagem e bate nela por HTTP. É a única
-que prova que o **container funciona** — o Dockerfile daqui já produziu container
-em loop de reinício sem nada perceber.
+**Camada 3 — exige a stack de pé.** A única que prova que o **container funciona**.
 
 ```bash
 docker compose up --detach --build --wait
 ./scripts/smoke.sh
 ```
 
-O smoke vive em `scripts/smoke.sh`, não no workflow: **uma cópia**, rodável nos
-dois lugares. Embutir no YAML garante duas versões divergindo em silêncio.
+O smoke vive em `scripts/smoke.sh` e não no workflow: **uma cópia**, rodável nos dois
+lugares.
 
-**Camada 3.5 — o repositório reproduz?** As outras testam o código; esta testa o
-**repositório**, via `git archive HEAD`. Fora do CI de propósito: lá todo checkout
-já é clone limpo. Ver `docs/DECISOES.md`.
+**Camada 3.5 — o repositório reproduz?** Testa o **repositório**, via `git archive
+HEAD`. Fora do CI, onde todo checkout já é limpo.
 
 ```bash
 npm run verify:repro
 ```
 
-`npm run verify` roda a Camada 1 e tenta as outras. O que não puder rodar **avisa em
-vez de falhar** e o script sai com **código 3**, para automação não confundir "pulou"
-com "passou". A Camada 3 não sobe a stack sozinha: leva minutos e derrubaria a de
-quem chamou.
+`npm run verify` roda a Camada 1 e tenta as outras; o que não puder rodar avisa e sai
+com **código 3**, para automação não confundir "pulou" com "passou". Grava tudo em
+`.verify.log`. As razões de cada camada estão em `docs/DECISOES.md`.
 
 Ferramentas e versões exigidas: `docs/FERRAMENTAS.md`.
 
