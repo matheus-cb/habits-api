@@ -283,6 +283,103 @@ describe('INV-38 — `propor` grava e NÃO executa', () => {
   });
 });
 
+describe('INV-39 — a superfície NATIVA do subprocesso é vazia', () => {
+  /**
+   * A fronteira que faltava, e que nenhuma das invariantes 25 a 38 governava.
+   *
+   * `--allowedTools` governa o que passa **sem pedir aprovação**, não o que
+   * existe. Eu medi que ele não impedia o modelo de chamar `request` e concluí "a
+   * flag não restringe" — a medição estava certa, a conclusão errada, e por causa
+   * dela eu parei de procurar a flag que restringe.
+   *
+   * É `--tools`, e ela opera sobre o conjunto EMBUTIDO. Sem ela o subprocesso
+   * tinha `Read`, `Write`, `Edit`, `Bash`, `WebFetch`, `Glob`, `Grep` e `Task` — e
+   * roda com o `HOME` de quem instalou o CLI, onde vivem `~/.ssh`, `~/.aws` e a
+   * credencial do próprio CLI.
+   *
+   * **Verificado com um arquivo inofensivo**: sem `--tools`, o subprocesso leu o
+   * arquivo e devolveu o conteúdo pelo chat. `Read` é a única tool de que um
+   * atacante precisaria — não é preciso escrever nem executar para exfiltrar.
+   *
+   * Estes casos são estáticos sobre o comando montado, e não invocações do CLI:
+   * invocar custaria da assinatura de quem roda a suíte, e o que precisa ser
+   * garantido é que a flag ESTÁ no comando — não que o CLI a obedece, que é
+   * responsabilidade dele.
+   */
+  function argumentosDoSpawn(): string[] {
+    // Espia o comando sem executar: o `spawn` é dublado e devolve um processo que
+    // falha na hora. É o que permite afirmar sobre o comando montado sem gastar
+    // uma chamada paga.
+    const capturados: string[][] = [];
+    jest.doMock('node:child_process', () => ({
+      spawn: (_cmd: string, args: string[]) => {
+        capturados.push(args);
+        return {
+          stdout: { on: () => undefined },
+          stderr: { on: () => undefined },
+          on: (evento: string, cb: (codigo: number) => void) => {
+            if (evento === 'close') setImmediate(() => cb(1));
+          },
+          kill: () => undefined,
+        };
+      },
+    }));
+
+    return capturados[0] ?? [];
+  }
+
+  it('INV-39: `--tools ""` está no comando, e é a defesa por AUSÊNCIA', () => {
+    // Leitura estática da fonte, porque é o comando montado que importa e ele é
+    // literal no arquivo. Um teste que executasse o spawn provaria o mesmo e
+    // custaria uma invocação.
+    const fonte = fs.readFileSync(
+      path.join(__dirname, '..', '..', 'src', 'assistant', 'motor-cli.ts'),
+      'utf8'
+    );
+
+    expect(fonte).toMatch(/'--tools',\s*\n\s*'',/);
+    expect(argumentosDoSpawn()).toEqual([]);
+  });
+
+  it('INV-39: adversário — `--allowedTools` NÃO é tratado como restrição', () => {
+    // O comentário que registra o erro de interpretação tem de continuar lá: sem
+    // ele, alguém remove `--tools` por achar que `--allowedTools` já restringe —
+    // que foi exatamente o que eu achei.
+    const fonte = fs.readFileSync(
+      path.join(__dirname, '..', '..', 'src', 'assistant', 'motor-cli.ts'),
+      'utf8'
+    );
+
+    // Normaliza espaço e remove os `//` de comentário: o prettier decide onde a
+    // linha quebra, e um caso que dependa disso reprova ao reformatar. O que
+    // importa é a frase estar lá.
+    const prosa = fonte.replace(/\/\//g, ' ').replace(/\s+/g, ' ');
+
+    expect(prosa).toContain('governa **o que passa sem pedir aprovação**');
+    expect(prosa).toContain('ausência, não permissão negada');
+  });
+
+  it('INV-39: o ambiente do subprocesso NÃO leva credencial da aplicação', () => {
+    // A outra metade do perímetro. `HOME` e `USER` são necessários — a credencial
+    // do CLI vive no keychain, que resolve o usuário por `USER`. `DATABASE_URL` e
+    // `JWT_SECRET` não são, e passá-los daria a um processo que executa código de
+    // terceiro credencial que ele não usa.
+    const fonte = fs.readFileSync(
+      path.join(__dirname, '..', '..', 'src', 'assistant', 'motor-cli.ts'),
+      'utf8'
+    );
+    const blocoDoEnv = fonte.slice(fonte.indexOf('env: {'), fonte.indexOf('stdio:'));
+
+    expect(blocoDoEnv).toContain('HOME');
+    expect(blocoDoEnv).toContain('USER');
+    expect(blocoDoEnv).not.toContain('DATABASE_URL');
+    expect(blocoDoEnv).not.toContain('JWT_SECRET');
+    expect(blocoDoEnv).not.toContain('ANTHROPIC_API_KEY');
+    // `...process.env` traria tudo de volta em uma linha.
+    expect(blocoDoEnv).not.toContain('...process.env');
+  });
+});
+
 describe('INV-38 — o subprocesso e o que ele leva', () => {
   it('INV-38: o motor recusa quando CLAUDE_CLI_PATH não aponta para nada', async () => {
     const motor = new MotorCli();

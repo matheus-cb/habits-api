@@ -169,6 +169,54 @@ export class MotorCli {
       // sessão. Ver `ASSISTANT_MODEL` para a medição que escolheu Sonnet.
       '--model',
       env.ASSISTANT_MODEL,
+      // A superfície NATIVA do subprocesso é vazia (INV-39). Isto é a linha mais
+      // importante deste comando.
+      //
+      // ## O que eu tinha entendido errado
+      //
+      // Eu medi que `--allowedTools "mcp__habits__query"` não impedia o modelo de
+      // chamar `request`, e concluí "a flag não restringe". A medição estava certa
+      // e a conclusão errada: `--allowedTools` governa **o que passa sem pedir
+      // aprovação**, não o que existe. Ela nunca prometeu restringir superfície.
+      //
+      // Por concluir isso eu parei de procurar a flag que restringe. É `--tools`,
+      // e ela opera sobre o conjunto EMBUTIDO. Sem ela, o subprocesso tinha
+      // `Read`, `Write`, `Edit`, `Bash`, `WebFetch`, `Glob`, `Grep` e `Task`
+      // disponíveis — e o `--disallowedTools` daqui nega duas tools MCP e nenhuma
+      // nativa.
+      //
+      // ## O vetor, e ele foi VERIFICADO
+      //
+      // O processo roda com o `HOME` de quem instalou o CLI, porque é onde vive a
+      // credencial da assinatura. `HOME` é também onde vivem `~/.ssh`, `~/.aws` e
+      // `~/.claude/.credentials.json`. A entrada do sistema é uma mensagem de chat
+      // e a saída volta pelo chat.
+      //
+      // Testado com um arquivo inofensivo que eu criei: sem `--tools`, o
+      // subprocesso leu `/tmp/prova-tools/alvo.txt` e devolveu o conteúdo na
+      // resposta. `Read` é a única tool de que um atacante precisaria — não é
+      // preciso escrever nem executar nada para exfiltrar credencial. Com
+      // `--tools ""`, a mesma mensagem recebe "não tenho como fazer isso: as
+      // únicas ferramentas desta sessão são as do sistema de hábitos".
+      //
+      // ## Por que vazio e não uma lista
+      //
+      // Mesma natureza da defesa do perfil `/mcp/assistente`: **ausência, não
+      // permissão negada.** As tools do `--mcp-config` continuam funcionando —
+      // verificado, `query` responde igual. Se algum dia uma nativa for
+      // necessária, `--tools "Read"` é enumeração explícita com o mesmo default
+      // fechado.
+      //
+      // ## A lição maior, e ela é sobre o perímetro
+      //
+      // As invariantes 25 a 38 governam o que o SERVIDOR aceita. Este `spawn`
+      // introduziu um segundo executor, com os privilégios do usuário do sistema
+      // operacional, e nenhuma delas o governava. A fronteira do sistema deixou de
+      // coincidir com a API no commit em que este arquivo entrou, e o mapa de
+      // invariantes não acompanhou — nenhuma das cinco regras da safra faz a
+      // pergunta "onde está a fronteira agora?".
+      '--tools',
+      '',
       '--mcp-config',
       configuracao,
       '--append-system-prompt',

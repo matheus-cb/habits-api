@@ -49,6 +49,20 @@ const envSchema = z.object({
    * seria dois assistentes.
    */
   ASSISTANT_MODEL: z.string().default('claude-sonnet-5'),
+
+  /**
+   * Dias de retenção de `ai_calls`.
+   *
+   * Só desta tabela: `habit_revisions` e `conversation_messages` guardam conteúdo
+   * que a pessoa pode querer daqui a um ano, e descartar por idade lá apaga
+   * exatamente o que se quer recuperar. `ai_calls` é telemetria — o valor decai, o
+   * volume cresce com uso, e nada nela é recuperável.
+   *
+   * 90 dias porque é o horizonte em que custo ainda orienta decisão. Além disso, o
+   * agregado mensal em `ai_usage_monthly` responde a pergunta que sobra: "meu
+   * gasto está subindo?".
+   */
+  TELEMETRY_RETENTION_DAYS: z.coerce.number().int().min(7).default(90),
   /** Teto de saída da redação. Resumo é texto curto; não precisa de mais. */
   AI_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(256).max(8192).default(1024),
 
