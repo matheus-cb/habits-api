@@ -15,7 +15,18 @@
 
 services:
   postgres:
-    image: postgres:16-alpine
+    # A major do Postgres é parametrizada pelo mesmo motivo das portas: para
+    # perguntar "as migrações e os 63 smokes passam noutra versão?" sem editar
+    # este arquivo. Default 16, então nenhum push muda de comportamento.
+    #
+    # Existe porque o destino em produção pode não ser 16. Aplicar as 12 migrações
+    # por `psql` numa 17 descartável já passou, inclusive o RLS isolando por
+    # usuário em ai_calls — mas `psql` não exercita o engine do Prisma, e o
+    # histórico deste repositório é justamente um engine incompatível com o
+    # OpenSSL da Alpine produzindo container em loop de reinício sem nada
+    # perceber. Só a Camada 2 (`prisma migrate deploy`) e a Camada 3 (a imagem)
+    # respondem isso.
+    image: postgres:${POSTGRES_TAG:-16}-alpine
     container_name: ${STACK_PREFIX:-habits}-postgres
     restart: unless-stopped
     ports:
