@@ -4,6 +4,20 @@ on:
   push:
     branches: [master, main]
   pull_request:
+  # Sonda de versão do Postgres, sob demanda.
+  #
+  # Uma matriz permanente dobraria as Camadas 2 e 3 em todo push para responder
+  # uma pergunta que é de hoje: "dá para hospedar num cluster que já é 17?".
+  # Despacho manual custa zero enquanto ninguém pergunta.
+  #
+  # O default repete o 16 de propósito: em `push` e `pull_request` o contexto
+  # `inputs` é vazio, e `|| '16'` faz o gate rodar exatamente como antes.
+  workflow_dispatch:
+    inputs:
+      postgres_tag:
+        description: 'Major do Postgres nas Camadas 2 e 3 (ex.: 16, 17)'
+        required: false
+        default: '16'
 
 jobs:
   # AGENTS.md é canônico e o CLAUDE.md só o importa. Sem este gate a convenção é
@@ -38,7 +52,10 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16-alpine
+        # É AQUI que a versão importa mais: este job roda `prisma migrate deploy`,
+        # ou seja, é o único lugar do gate que exercita o engine do Prisma contra
+        # a major escolhida.
+        image: postgres:${{ inputs.postgres_tag || '16' }}-alpine
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -111,6 +128,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: [camada-1]
     env:
+      # Lido pelo `docker-compose.yml`, que o resolve com `${POSTGRES_TAG:-16}`.
+      POSTGRES_TAG: ${{ inputs.postgres_tag || '16' }}
       JWT_SECRET: ci-only-secret-with-at-least-32-characters
       # Ausente de propósito. A stack tem de subir e responder sem provedor de
       # IA (INV-15), e o smoke verifica `narration.source = deterministic`.
