@@ -151,6 +151,10 @@ describe('INV-37 — a configuração da aplicação chega ao container', () => 
       ['TELEMETRY_RETENTION_DAYS', '90'],
       ['AI_TIMEOUT_MS', '20_000'],
       ['AI_MAX_OUTPUT_TOKENS', '1024'],
+      // INV-42. Contradizer aqui seria pior que nas outras: registro aberto na
+      // imagem e fechado no Zod significa porta aberta em produção com o código
+      // dizendo que está fechada.
+      ['REGISTRO', 'fechado'],
     ];
 
     for (const [chave, valorNoZod] of pares) {

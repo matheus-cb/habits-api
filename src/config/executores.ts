@@ -79,6 +79,21 @@ export const EXECUTORES: readonly Executor[] = [
       'INV-29 (tabela nova nasce inacessível). connection_limit=2 contra DoS.',
   },
   {
+    onde: 'scripts/criar-conta.ts → new PrismaClient',
+    quem: 'Postgres, fora do HTTP',
+    // A credencial NÃO menciona "delete", nem para negar: o caso
+    // `os dois executores com DELETE FÍSICO` filtra por /DELETE FÍSICO/i, e uma
+    // negação escrita aqui seria lida como afirmação e classificaria este script
+    // junto de `purge` e `reter-telemetria`.
+    credencial: 'dono das tabelas, restrito a criar usuário',
+    superficie: 'INSERT em users, e só isso',
+    governadaPor:
+      'INV-42, do outro lado: com o registro fechado, é este o caminho de criação. ' +
+      'Não é rota de propósito — proteção topológica, não há endpoint a permitir ou ' +
+      'negar. A senha é gerada aqui e nunca vem por argv, que vaza no histórico do ' +
+      'shell e na lista de processos.',
+  },
+  {
     onde: 'scripts/purge.ts → new PrismaClient',
     quem: 'Postgres, fora do HTTP',
     credencial: 'dono das tabelas, com DELETE FÍSICO',

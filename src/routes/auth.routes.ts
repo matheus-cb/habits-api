@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { AuthController } from '@/controllers/auth.controller';
 import { validateBody } from '@/middlewares/validation.middleware';
 import { authenticate } from '@/middlewares/auth.middleware';
+import { exigirRegistroAberto } from '@/middlewares/registro.middleware';
 import { registerSchema, loginSchema, updateProfileSchema } from '@/schemas/auth.schema';
 
 const router = Router();
@@ -33,8 +34,16 @@ const authController = new AuthController();
  *     responses:
  *       201:
  *         description: User registered successfully
+ *       403:
+ *         description: Registration disabled on this instance (INV-42)
  */
-router.post('/register', validateBody(registerSchema), authController.register);
+// A guarda vem antes do validateBody de propósito — ver o docblock do middleware.
+router.post(
+  '/register',
+  exigirRegistroAberto,
+  validateBody(registerSchema),
+  authController.register
+);
 
 /**
  * @swagger

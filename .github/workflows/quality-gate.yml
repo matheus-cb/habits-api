@@ -130,6 +130,10 @@ jobs:
     env:
       # Lido pelo `docker-compose.yml`, que o resolve com `${POSTGRES_TAG:-16}`.
       POSTGRES_TAG: ${{ inputs.postgres_tag || '16' }}
+      # O smoke obtém o primeiro token pelo registro, e todas as seções seguintes
+      # usam esse token. Com o default `fechado` do INV-42 o script inteiro ficaria
+      # 401 — o que o smoke provaria seria a guarda, não a imagem.
+      REGISTRO: aberto
       JWT_SECRET: ci-only-secret-with-at-least-32-characters
       # Ausente de propósito. A stack tem de subir e responder sem provedor de
       # IA (INV-15), e o smoke verifica `narration.source = deterministic`.
