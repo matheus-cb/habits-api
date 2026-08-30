@@ -59,6 +59,8 @@ export interface AcaoProposta {
   path: string;
   corpo: unknown;
   resumo: string;
+  /** A proposta recém-criada sempre aguarda decisão humana. */
+  status: 'pending';
   expiresAt: string;
 }
 
@@ -293,6 +295,7 @@ export class AssistantService {
           path: acao.path,
           corpo: acao.corpo === null ? null : (JSON.parse(acao.corpo) as unknown),
           resumo: acao.resumo,
+          status: 'pending',
           expiresAt: acao.expiresAt.toISOString(),
         },
       });
@@ -514,6 +517,7 @@ export class AssistantService {
       path,
       corpo: entrada.corpo ?? null,
       resumo: acao.resumo,
+      status: 'pending',
       expiresAt: expiresAt.toISOString(),
     };
   }

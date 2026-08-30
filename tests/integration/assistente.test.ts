@@ -174,6 +174,12 @@ describe('INV-34 — leitura executa, escrita PARA e vira proposta', () => {
 
     expect(eventos.at(-1)).toEqual({ tipo: 'fim', motivo: 'aguardando_aprovacao' });
 
+    // O evento em tempo real precisa carregar o status. Sem ele, o dashboard
+    // recebe a proposta, mas o card não mostra Aprovar/Recusar até uma recarga,
+    // que reconstrói a ação a partir do histórico persistido.
+    const eventoAcao = eventos.find((evento) => evento.tipo === 'acao');
+    expect(eventoAcao?.tipo === 'acao' ? eventoAcao.acao.status : undefined).toBe('pending');
+
     const acao = await prismaCru.pendingAction.findFirst({ where: { conversationId: conversa.id } });
     expect(acao!.status).toBe('pending');
     expect(acao!.metodo).toBe('DELETE');
