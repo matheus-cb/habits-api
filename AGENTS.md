@@ -49,6 +49,7 @@ commit — assim cada regra tem um teste apontável, em vez de "temos testes".
 | **INV-10** | Identidade vem só do JWT verificado; nunca de body, query ou header solto | `middlewares/auth.middleware.ts` |
 | **INV-11** | Senha nunca sai do service para a resposta | `auth.service.ts` |
 | **INV-12** | Erro esperado é `AppError` com status; erro desconhecido não vaza mensagem em produção | `middlewares/error.middleware.ts` |
+| **INV-42** | Registro fecha por default; a rota **continua registrada** e recusa com motivo | `middlewares/registro.middleware.ts` |
 
 ### IA
 

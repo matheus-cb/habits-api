@@ -70,6 +70,13 @@ services:
       JWT_SECRET: ${JWT_SECRET:?defina JWT_SECRET com no minimo 32 caracteres}
       JWT_EXPIRES_IN: 7d
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      # INV-42, e o default aqui repete o do Zod porque o INV-37 exige que
+      # repita. Consequência que vale saber antes de tropeçar: `docker compose
+      # up` sem `.env` sobe com o registro FECHADO, e o `scripts/smoke.sh`
+      # reprova no primeiro request, porque todo o resto do smoke depende do
+      # token que o registro devolve. O `.env.example` traz `aberto`; o job
+      # `smoke` do CI o declara no ambiente.
+      REGISTRO: ${REGISTRO:-fechado}
       # Deliberadamente repassada vazia quando ausente: a stack tem de subir e
       # funcionar sem provedor de IA (INV-15), e o smoke verifica isso.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}

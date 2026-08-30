@@ -13,6 +13,30 @@ const envSchema = z.object({
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
 
   /**
+   * Se `POST /auth/register` aceita criar conta (INV-42).
+   *
+   * O default é `fechado`, e a escolha do default é o ponto. Enquanto a API
+   * rodava só nesta máquina, registro aberto era inofensivo; publicada, a conta
+   * é de quem souber a URL e o custo do assistente é de quem hospeda — e o teto
+   * de custo é POR USUÁRIO (INV-36), então cada conta nova multiplica o gasto.
+   *
+   * Fechado por default e não aberto-com-fechamento-explícito porque as duas
+   * falhas não são simétricas: esquecer a variável em produção deixaria a porta
+   * aberta sem nada acusando, enquanto esquecê-la em desenvolvimento produz um
+   * 403 imediato e legível. É a mesma escolha do INV-27 — falha fechada.
+   *
+   * O preço está declarado: um clone novo, sem `.env`, sobe com o registro
+   * fechado e o `scripts/smoke.sh` local reprova no primeiro request. Por isso
+   * `.env.example` e `.env.test` trazem `aberto`, e o job `smoke` do CI o
+   * declara no ambiente.
+   *
+   * Enum e não booleano porque `env.ts` não tem precedente de booleano — os
+   * ligáveis existentes são variáveis opcionais cuja ausência desliga o recurso,
+   * e aqui a ausência precisa LIGAR a proteção, não desligá-la.
+   */
+  REGISTRO: z.enum(['aberto', 'fechado']).default('fechado'),
+
+  /**
    * IA — inteiramente opcional. Sem chave, a camada de insights continua
    * respondendo pelo redator determinístico e o resto da API não muda em nada.
    * É por isso que estas três não têm `.min()` nem são obrigatórias: torná-las
@@ -151,3 +175,6 @@ export const env = _env.data;
 
 /** Se há provedor de IA configurado. Único lugar que decide isso. */
 export const aiConfigured = (): boolean => Boolean(env.ANTHROPIC_API_KEY?.trim());
+
+/** Se a criação de conta por HTTP está liberada. Único lugar que decide isso. */
+export const registroAberto = (): boolean => env.REGISTRO === 'aberto';
