@@ -28,4 +28,15 @@ describe('ponte privada do Claude Code', () => {
     expect(compose).toContain('127.0.0.1:3334:3333');
     expect(compose).not.toMatch(/['\"]?0\.0\.0\.0:3334/);
   });
+
+  it('a unidade reutiliza a credencial do Claude Code sem duplicá-la', () => {
+    const unidade = fs.readFileSync(
+      path.join(RAIZ, 'deploy', 'claude-bridge', 'habits-claude-bridge.service'),
+      'utf8'
+    );
+
+    expect(unidade).toContain('EnvironmentFile=/etc/notaflow-agent.env');
+    expect(unidade).toContain('EnvironmentFile=/etc/habits-claude-bridge.env');
+    expect(unidade).toContain('Environment=HOME=/var/lib/nfagent');
+  });
 });

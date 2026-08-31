@@ -7,7 +7,14 @@ Wants=network-online.target
 Type=simple
 User=nfagent
 Group=nfagent
+# O token OAuth continua no arquivo já usado pelo agente do Claude Code. A
+# configuração do Habits contém só o segredo próprio da ponte; não duplicamos a
+# credencial da assinatura em outro arquivo.
+EnvironmentFile=/etc/notaflow-agent.env
 EnvironmentFile=/etc/habits-claude-bridge.env
+Environment=HOME=/var/lib/nfagent
+Environment=USER=nfagent
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 WorkingDirectory=/opt/habits/claude-bridge
 ExecStart=/usr/bin/node /opt/habits/claude-bridge/server.js
 Restart=always
