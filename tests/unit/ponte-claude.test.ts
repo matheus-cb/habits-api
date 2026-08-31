@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { CABECALHO_DE_CONVERSA } from '@/mcp/tools-assistente';
 
 const RAIZ = path.join(__dirname, '..', '..');
 
@@ -20,6 +21,16 @@ describe('ponte privada do Claude Code', () => {
     expect(fonte).toContain('mcp__habits__consultar mcp__habits__propor');
     expect(fonte).toContain('mcp__habits__request mcp__habits__agir');
     expect(fonte).toContain("HOST === '0.0.0.0'");
+  });
+
+  it('propaga à ponte o cabeçalho de conversa exigido pelo MCP restrito', () => {
+    // A ponte gera o mcp.json fora do processo TypeScript. Fixar o nome aqui
+    // impede que a configuração do host se afaste do contrato do servidor e
+    // faça consultas e propostas falharem em produção com HTTP 400.
+    const fonte = fs.readFileSync(path.join(RAIZ, 'deploy', 'claude-bridge', 'server.js'), 'utf8');
+
+    expect(fonte).toContain(`'${CABECALHO_DE_CONVERSA}': pedido.conversationId`);
+    expect(fonte).not.toContain('x-habits-conversation-id');
   });
 
   it('a publicação do MCP é apenas no loopback do host', () => {

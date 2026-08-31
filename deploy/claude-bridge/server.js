@@ -69,7 +69,10 @@ function executar(pedido) {
         url: MCP_URL,
         headers: {
           Authorization: `Bearer ${pedido.token}`,
-          'x-habits-conversation-id': pedido.conversationId,
+          // O MCP restrito resolve a conversa por este cabeçalho. Ele precisa
+          // ser o mesmo `CABECALHO_DE_CONVERSA` usado pelo MotorCli local; um
+          // nome parecido, mas diferente, faz o MCP recusar toda tool com 400.
+          'x-habits-conversation': pedido.conversationId,
         },
       },
     },
