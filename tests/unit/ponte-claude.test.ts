@@ -33,6 +33,26 @@ describe('ponte privada do Claude Code', () => {
     expect(fonte).not.toContain('x-habits-conversation-id');
   });
 
+  it('mantém o diretório de trabalho estável para retomar a conversa', () => {
+    const fonte = fs.readFileSync(path.join(RAIZ, 'deploy', 'claude-bridge', 'server.js'), 'utf8');
+
+    expect(fonte).toContain('const DIRETORIO_DE_SESSOES');
+    expect(fonte).toContain('fs.mkdirSync(DIRETORIO_DE_SESSOES');
+    expect(fonte).toContain('cwd: DIRETORIO_DE_SESSOES');
+    expect(fonte).not.toContain('cwd: diretorio');
+  });
+
+  it('recupera conversa antiga só quando a chamada falha sem criar proposta', () => {
+    const fonte = fs.readFileSync(
+      path.join(RAIZ, 'src', 'assistant', 'assistant.service.ts'),
+      'utf8'
+    );
+
+    expect(fonte).toContain("motor === 'bridge' && parametrosDoClaude.sessionId");
+    expect(fonte).toContain('novasNaFalha.length === 0');
+    expect(fonte).toContain('sessionId: null');
+  });
+
   it('a publicação do MCP é apenas no loopback do host', () => {
     const compose = fs.readFileSync(path.join(RAIZ, 'deploy', 'docker-compose.prod.yml'), 'utf8');
 
