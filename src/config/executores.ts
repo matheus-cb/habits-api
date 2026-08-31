@@ -62,7 +62,8 @@ export const EXECUTORES: readonly Executor[] = [
   {
     onde: 'deploy/claude-bridge/server.js → execFile',
     quem: 'processo do sistema operacional, fora do container',
-    credencial: 'token OAuth do Claude Code no usuário nfagent; JWT da pessoa só vive no mcp.json temporário',
+    credencial:
+      'token OAuth do Claude Code no usuário nfagent; JWT da pessoa só vive no mcp.json temporário',
     superficie: 'somente MCP /mcp/assistente, com tools nativas VAZIAS e consultar/propor',
     governadaPor:
       'INV-38 e INV-39. A ponte é privada, cria arquivo 0600 e o apaga; o host não ' +
