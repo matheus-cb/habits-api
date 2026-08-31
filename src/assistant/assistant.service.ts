@@ -194,7 +194,10 @@ export class AssistantService {
 
     const motor = this.motor();
     if (motor === 'cli' || motor === 'bridge') {
-      await this.responderPeloClaudeCode({ userId, token, conversationId, mensagem, emitir }, motor);
+      await this.responderPeloClaudeCode(
+        { userId, token, conversationId, mensagem, emitir },
+        motor
+      );
       return;
     }
 
@@ -214,13 +217,16 @@ export class AssistantService {
    * `--output-format stream-json`, e está declarado como trabalho seguinte em
    * `docs/ASSISTENTE.md`.
    */
-  private async responderPeloClaudeCode(input: {
-    userId: string;
-    token: string;
-    conversationId: string;
-    mensagem: string;
-    emitir: Emitir;
-  }, motor: 'cli' | 'bridge'): Promise<void> {
+  private async responderPeloClaudeCode(
+    input: {
+      userId: string;
+      token: string;
+      conversationId: string;
+      mensagem: string;
+      emitir: Emitir;
+    },
+    motor: 'cli' | 'bridge'
+  ): Promise<void> {
     const conversa = await this.repo.acharConversa(input.conversationId);
     const inicio = Date.now();
 
@@ -335,12 +341,15 @@ export class AssistantService {
       //
       // A mensagem é sintética e marcada como tal. Inventar uma fala da pessoa
       // ("obrigado, aplicou?") poluiria o histórico com algo que ela não disse.
-      await this.responderPeloClaudeCode({
-        ...input,
-        mensagem:
-          '[sistema] A pessoa decidiu sobre a sua última proposta. Confira o resultado ' +
-          'consultando os dados e diga em uma frase o que ficou. Se ela recusou, não insista.',
-      }, motor);
+      await this.responderPeloClaudeCode(
+        {
+          ...input,
+          mensagem:
+            '[sistema] A pessoa decidiu sobre a sua última proposta. Confira o resultado ' +
+            'consultando os dados e diga em uma frase o que ficou. Se ela recusou, não insista.',
+        },
+        motor
+      );
       return;
     }
 
