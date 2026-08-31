@@ -608,6 +608,29 @@ describe('INV-15 — sem chave, o chat recusa e o app segue', () => {
     expect(resposta.body.data.orcamento.teto).toBeGreaterThan(0);
   });
 
+  it('INV-15: retomar sem motor informa indisponibilidade sem tentar usar cliente nulo', async () => {
+    // Uma ação pode ser decidida depois de uma troca de configuração. O caminho
+    // antigo caía no laço da API mesmo sem cliente e explodia em `messages` de
+    // null. A decisão fica registrada; só a retomada é adiada e comunicada.
+    const a = await registrar('chat-retomar-sem-motor@example.com');
+    const service = new AssistantService(gatewayDeQuery, gatewayDeRequest, null);
+    const conversa = await service.abrirConversa(a.userId, undefined, 'oi');
+    const { eventos, emitir } = coletar();
+
+    await expect(
+      service.retomar({
+        userId: a.userId,
+        token: a.token,
+        conversationId: conversa.id,
+        emitir,
+      })
+    ).resolves.toBeUndefined();
+
+    expect(eventos).toEqual([
+      { tipo: 'erro', mensagem: 'O assistente está indisponível no momento.' },
+    ]);
+  });
+
   it('INV-15: o resto do app não muda sem chave', async () => {
     const a = await registrar('chat-app-intacto@example.com');
     await criarHabito(a.token, 'Funciona sem IA');

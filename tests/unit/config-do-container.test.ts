@@ -49,7 +49,8 @@ function envDoZod(): string[] {
 function envDoCompose(): string[] {
   const linhas = fs
     .readFileSync(path.join(RAIZ, 'docker-compose.yml'), 'utf8')
-    .split('\n');
+    .split('\n')
+    .map((linha) => linha.replace(/\r$/, ''));
 
   const inicioDoApi = linhas.findIndex((linha) => linha === '  api:');
   const inicioDoAmbiente = linhas.findIndex(

@@ -11,6 +11,7 @@ import {
 } from '@/utils/errors';
 import { logger } from '@/utils/logger';
 import { toDayKey, utcStartOfDay } from '@/utils/helpers';
+import { MotorBridge, ponteDisponivel } from './motor-bridge';
 import { cliDisponivel, MotorCli } from './motor-cli';
 import { orcamentoDoDia } from './orcamento';
 import { promptDoSistema, promptDoSistemaParaCli } from './prompt';
@@ -81,7 +82,8 @@ export class AssistantService {
       ? new Anthropic({ apiKey: env.ANTHROPIC_API_KEY })
       : null,
     private readonly repo: AssistantRepository = assistantRepository,
-    private readonly motorCli: MotorCli = new MotorCli()
+    private readonly motorCli: MotorCli = new MotorCli(),
+    private readonly motorBridge: MotorBridge = new MotorBridge()
   ) {}
 
   /**
@@ -97,8 +99,9 @@ export class AssistantService {
    * se há chave, use a chave. Uma variável para inverter isso seria uma chance de
    * alguém rodar o caminho caro sem querer.
    */
-  private motor(): 'api' | 'cli' | null {
+  private motor(): 'api' | 'bridge' | 'cli' | null {
     if (this.cliente) return 'api';
+    if (ponteDisponivel().ok) return 'bridge';
     if (cliDisponivel().ok) return 'cli';
     return null;
   }
@@ -111,15 +114,15 @@ export class AssistantService {
    * motivo legível e o resto do app segue idêntico (INV-15). Fingir uma resposta
    * seria pior que recusar.
    */
-  disponivel(): { ok: boolean; motivo?: string; motor?: 'api' | 'cli' } {
+  disponivel(): { ok: boolean; motivo?: string; motor?: 'api' | 'bridge' | 'cli' } {
     const motor = this.motor();
 
     if (!motor) {
       return {
         ok: false,
         motivo:
-          'O assistente precisa de um motor: ou ANTHROPIC_API_KEY (chave da Anthropic), ou ' +
-          'CLAUDE_CLI_PATH apontando para o `claude` instalado e autenticado nesta máquina. ' +
+          'O assistente precisa de um motor: ANTHROPIC_API_KEY, uma ponte privada do Claude Code ' +
+          '(CLAUDE_BRIDGE_BASE_URL e CLAUDE_BRIDGE_SECRET), ou CLAUDE_CLI_PATH local. ' +
           'Todo o resto do app funciona sem os dois.',
       };
     }
@@ -189,8 +192,12 @@ export class AssistantService {
 
     await this.gravar(conversationId, 'user', mensagem);
 
-    if (this.motor() === 'cli') {
-      await this.responderPeloCli({ userId, token, conversationId, mensagem, emitir });
+    const motor = this.motor();
+    if (motor === 'cli' || motor === 'bridge') {
+      await this.responderPeloClaudeCode(
+        { userId, token, conversationId, mensagem, emitir },
+        motor
+      );
       return;
     }
 
@@ -210,13 +217,16 @@ export class AssistantService {
    * `--output-format stream-json`, e está declarado como trabalho seguinte em
    * `docs/ASSISTENTE.md`.
    */
-  private async responderPeloCli(input: {
-    userId: string;
-    token: string;
-    conversationId: string;
-    mensagem: string;
-    emitir: Emitir;
-  }): Promise<void> {
+  private async responderPeloClaudeCode(
+    input: {
+      userId: string;
+      token: string;
+      conversationId: string;
+      mensagem: string;
+      emitir: Emitir;
+    },
+    motor: 'cli' | 'bridge'
+  ): Promise<void> {
     const conversa = await this.repo.acharConversa(input.conversationId);
     const inicio = Date.now();
 
@@ -231,7 +241,7 @@ export class AssistantService {
 
     let resposta;
     try {
-      resposta = await this.motorCli.perguntar({
+      resposta = await (motor === 'bridge' ? this.motorBridge : this.motorCli).perguntar({
         token: input.token,
         conversationId: input.conversationId,
         sessionId: conversa?.cliSessionId ?? null,
@@ -242,13 +252,13 @@ export class AssistantService {
       await this.repo.registrarChamada({
         userId: input.userId,
         conversationId: input.conversationId,
-        model: `cli:${env.ASSISTANT_MODEL}`,
+        model: `${motor}:${env.ASSISTANT_MODEL}`,
         inputTokens: 0,
         outputTokens: 0,
         toolCalls: 0,
         durationMs: Date.now() - inicio,
         outcome: erro instanceof Error ? `erro:${erro.name}` : 'erro:desconhecido',
-        engine: 'cli',
+        engine: motor,
       });
       throw erro;
     }
@@ -256,13 +266,13 @@ export class AssistantService {
     await this.repo.registrarChamada({
       userId: input.userId,
       conversationId: input.conversationId,
-      model: `cli:${env.ASSISTANT_MODEL}`,
+      model: `${motor}:${env.ASSISTANT_MODEL}`,
       inputTokens: 0,
       outputTokens: resposta.tokensDeSaida,
       toolCalls: resposta.turnos,
       durationMs: resposta.duracaoMs,
       outcome: resposta.desfecho,
-      engine: 'cli',
+      engine: motor,
       costUsd: resposta.custoUsd,
     });
 
@@ -323,19 +333,32 @@ export class AssistantService {
     conversationId: string;
     emitir: Emitir;
   }): Promise<void> {
-    if (this.motor() === 'cli') {
+    const motor = this.motor();
+    if (motor === 'cli' || motor === 'bridge') {
       // No CLI a retomada é uma mensagem como outra: o resultado da ação aprovada
       // já está no banco, e o modelo o descobre consultando. Não há `tool_result`
       // a devolver porque o laço não é nosso.
       //
       // A mensagem é sintética e marcada como tal. Inventar uma fala da pessoa
       // ("obrigado, aplicou?") poluiria o histórico com algo que ela não disse.
-      await this.responderPeloCli({
-        ...input,
-        mensagem:
-          '[sistema] A pessoa decidiu sobre a sua última proposta. Confira o resultado ' +
-          'consultando os dados e diga em uma frase o que ficou. Se ela recusou, não insista.',
-      });
+      await this.responderPeloClaudeCode(
+        {
+          ...input,
+          mensagem:
+            '[sistema] A pessoa decidiu sobre a sua última proposta. Confira o resultado ' +
+            'consultando os dados e diga em uma frase o que ficou. Se ela recusou, não insista.',
+        },
+        motor
+      );
+      return;
+    }
+
+    if (motor !== 'api') {
+      // A decisão pode chegar depois de uma configuração ter sido removida ou
+      // de uma ponte reiniciar. Nunca force o caminho da API com `cliente` nulo:
+      // isso era o `Cannot read properties of null (reading messages)` visto na
+      // interface. A conversa fica íntegra e a pessoa pode tentar novamente.
+      input.emitir({ tipo: 'erro', mensagem: 'O assistente está indisponível no momento.' });
       return;
     }
 

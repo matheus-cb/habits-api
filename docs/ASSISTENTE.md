@@ -10,9 +10,9 @@ Não é o mesmo que o MCP. São duas superfícies para o mesmo motor:
 | | MCP | Chat do dashboard |
 |---|---|---|
 | Cliente | Claude Code / Claude Desktop | o próprio dashboard |
-| Quem paga | a assinatura de quem conversa | `ANTHROPIC_API_KEY` do servidor |
+| Quem paga | a assinatura de quem conversa | assinatura do Claude Code ou `ANTHROPIC_API_KEY` |
 | Confirmação de escrita | o cliente MCP tem a dele | **ação pendente**, no banco |
-| Precisa de chave? | não | **sim** |
+| Precisa de chave? | não | não quando a ponte privada do Claude Code está configurada |
 
 ## Como a fronteira funciona aqui
 
@@ -63,7 +63,7 @@ aceitável enquanto o cliente era o Claude Code, que tem registro próprio e cuj
 conta é de quem conversa. Com chat próprio, um laço mal conduzido gasta dinheiro do
 servidor e ninguém saberia.
 
-## Dois motores, e a ordem é deliberada
+## Três motores, e a ordem é deliberada
 
 | | Chave da API | Assinatura do Claude Code |
 |---|---|---|
@@ -72,6 +72,15 @@ servidor e ninguém saberia.
 | Tempo por pergunta | ~3s | **11–28s** (medido) |
 | Roda no container | sim | **não** — o CLI não existe na imagem |
 | Streaming | por bloco | resposta inteira no fim |
+
+Em produção, a assinatura do Claude Code chega por uma **ponte privada no host**:
+o container chama `CLAUDE_BRIDGE_BASE_URL`, autenticado por
+`CLAUDE_BRIDGE_SECRET`; a ponte cria uma configuração MCP temporária que aponta
+somente para `/mcp/assistente`. O binário, o `HOME` e a credencial OAuth nunca são
+montados no container. A rota MCP é publicada apenas em `127.0.0.1:3334`, e a
+ponte escuta apenas no gateway interno do Docker. Ela habilita exclusivamente
+`consultar` e `propor`; ações continuam sendo linhas pendentes até o clique da
+pessoa.
 
 A chave ganha quando existe, e a ordem não é configurável: se há chave, use a
 chave. Uma variável para inverter seria uma chance de rodar o caminho caro sem
@@ -160,7 +169,7 @@ O fluxo completo foi verificado à mão, com a API rodando no host:
 4. Retomada → *"Você aprovou: o Meditar 10min agora está agendado de terça a
    sexta."*
 
-## Sem chave
+## Sem motor configurado
 
 O chat responde recusando, com o motivo legível, e o resto do app fica idêntico.
 

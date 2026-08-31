@@ -103,6 +103,11 @@ services:
       # caso de alguém montar o binário e o `HOME` no container; vazia, o motor CLI
       # simplesmente não é escolhido e a chave da API atende.
       CLAUDE_CLI_PATH: ${CLAUDE_CLI_PATH:-}
+      # A ponte vive no host e é alcançável só pela rede Docker privada. Ela
+      # mantém a credencial do Claude Code fora desta imagem.
+      CLAUDE_BRIDGE_BASE_URL: ${CLAUDE_BRIDGE_BASE_URL:-}
+      CLAUDE_BRIDGE_SECRET: ${CLAUDE_BRIDGE_SECRET:-}
+      ASSISTANT_BRIDGE_TIMEOUT_MS: ${ASSISTANT_BRIDGE_TIMEOUT_MS:-180000}
       # `CORS_ORIGIN` faltava desde antes do assistente, e o efeito é visível: o
       # dashboard servido de outra origem seria bloqueado pelo navegador e o
       # container não tinha como saber qual origem liberar. Achado pelo gate de

@@ -60,6 +60,16 @@ export const EXECUTORES: readonly Executor[] = [
       'verificado com arquivo inofensivo. O ambiente exclui DATABASE_URL e JWT_SECRET.',
   },
   {
+    onde: 'deploy/claude-bridge/server.js → execFile',
+    quem: 'processo do sistema operacional, fora do container',
+    credencial:
+      'token OAuth do Claude Code no usuário nfagent; JWT da pessoa só vive no mcp.json temporário',
+    superficie: 'somente MCP /mcp/assistente, com tools nativas VAZIAS e consultar/propor',
+    governadaPor:
+      'INV-38 e INV-39. A ponte é privada, cria arquivo 0600 e o apaga; o host não ' +
+      'aceita URL MCP, ferramenta ou argumento de linha de comando vindos do dashboard.',
+  },
+  {
     onde: 'src/config/database.ts → new PrismaClient',
     quem: 'Postgres',
     credencial: 'dono das tabelas — **contorna RLS**',

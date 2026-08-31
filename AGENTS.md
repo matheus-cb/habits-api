@@ -111,7 +111,7 @@ prompt. Detalhes em `docs/ASSISTENTE.md`.
 | **INV-36** | Teto diário de tokens recusa **antes** de chamar o modelo | `assistant/orcamento.ts` |
 | **INV-37** | Variável que o `env.ts` lê chega ao container, com o **mesmo** default | `docker-compose.yml` |
 | **INV-38** | A superfície do chat **não tem** tool de escrita; `propor` grava, não executa | `src/mcp/tools-assistente.ts` |
-| **INV-39** | A superfície **nativa** do subprocesso é vazia: só tools MCP | `src/assistant/motor-cli.ts` |
+| **INV-39** | A superfície **nativa** do subprocesso é vazia: só tools MCP | `src/assistant/motor-cli.ts`, `deploy/claude-bridge/server.js` |
 | **INV-40** | `ai_calls` tem retenção por idade; o agregado mensal sobrevive | `scripts/reter-telemetria.ts` |
 | **INV-41** | Todo **executor** está classificado: quem, com que credencial, qual superfície | `src/config/executores.ts` |
 
