@@ -239,28 +239,40 @@ export class AssistantService {
 
     input.emitir({ tipo: 'ferramenta', nome: 'claude-code', resumo: 'pensando na sua assinatura' });
 
+    const parametrosDoClaude = {
+      token: input.token,
+      conversationId: input.conversationId,
+      sessionId: conversa?.cliSessionId ?? null,
+      mensagem: input.mensagem,
+      sistema: promptDoSistemaParaCli(toDayKey(utcStartOfDay())),
+    };
+
     let resposta;
     try {
-      resposta = await (motor === 'bridge' ? this.motorBridge : this.motorCli).perguntar({
-        token: input.token,
-        conversationId: input.conversationId,
-        sessionId: conversa?.cliSessionId ?? null,
-        mensagem: input.mensagem,
-        sistema: promptDoSistemaParaCli(toDayKey(utcStartOfDay())),
-      });
+      resposta = await (motor === 'bridge' ? this.motorBridge : this.motorCli).perguntar(
+        parametrosDoClaude
+      );
     } catch (erro) {
-      await this.repo.registrarChamada({
-        userId: input.userId,
-        conversationId: input.conversationId,
-        model: `${motor}:${env.ASSISTANT_MODEL}`,
-        inputTokens: 0,
-        outputTokens: 0,
-        toolCalls: 0,
-        durationMs: Date.now() - inicio,
-        outcome: erro instanceof Error ? `erro:${erro.name}` : 'erro:desconhecido',
-        engine: motor,
-      });
-      throw erro;
+      // As sessões gravadas antes da ponte ter diretório estável não podem ser
+      // retomadas. Recuperamos com uma sessão nova apenas se a tentativa que
+      // falhou não criou proposta: `propor` persiste uma PendingAction e repetir
+      // depois dela produziria uma cópia para aprovar.
+      const novasNaFalha = (await this.repo.acoesDaConversa(input.conversationId)).filter(
+        (acao) => !antes.has(acao.id)
+      );
+
+      if (motor === 'bridge' && parametrosDoClaude.sessionId && novasNaFalha.length === 0) {
+        logger.warn('sessão anterior do Claude Code não pôde ser retomada; iniciando uma nova');
+        try {
+          resposta = await this.motorBridge.perguntar({ ...parametrosDoClaude, sessionId: null });
+        } catch (erroDaRecuperacao) {
+          await this.registrarFalhaDoClaudeCode(input, motor, inicio, erroDaRecuperacao);
+          throw erroDaRecuperacao;
+        }
+      } else {
+        await this.registrarFalhaDoClaudeCode(input, motor, inicio, erro);
+        throw erro;
+      }
     }
 
     await this.repo.registrarChamada({
@@ -314,6 +326,25 @@ export class AssistantService {
     input.emitir({
       tipo: 'fim',
       motivo: novas.length > 0 ? 'aguardando_aprovacao' : 'completo',
+    });
+  }
+
+  private async registrarFalhaDoClaudeCode(
+    input: { userId: string; conversationId: string },
+    motor: 'cli' | 'bridge',
+    inicio: number,
+    erro: unknown
+  ): Promise<void> {
+    await this.repo.registrarChamada({
+      userId: input.userId,
+      conversationId: input.conversationId,
+      model: `${motor}:${env.ASSISTANT_MODEL}`,
+      inputTokens: 0,
+      outputTokens: 0,
+      toolCalls: 0,
+      durationMs: Date.now() - inicio,
+      outcome: erro instanceof Error ? `erro:${erro.name}` : 'erro:desconhecido',
+      engine: motor,
     });
   }
 

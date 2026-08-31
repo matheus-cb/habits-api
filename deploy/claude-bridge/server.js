@@ -23,12 +23,17 @@ const MODEL = process.env.HABITS_ASSISTANT_MODEL || 'sonnet';
 const MCP_URL = process.env.HABITS_MCP_URL || 'http://127.0.0.1:3334/mcp/assistente';
 const TIMEOUT_MS = Number(process.env.HABITS_BRIDGE_TIMEOUT_MS || 180_000);
 const MAX_BODY = 128_000;
+// O Claude Code indexa sessões também pelo diretório de trabalho. Usar o
+// diretório temporário do mcp.json aqui fazia a primeira mensagem funcionar e
+// toda retomada falhar, pois a pasta era removida ao fim da chamada.
+const DIRETORIO_DE_SESSOES = '/var/lib/nfagent/habits-claude-bridge/workspace';
 
 if (!SECRET || SECRET.length < 32) throw new Error('HABITS_BRIDGE_SECRET é obrigatório e longo.');
 if (HOST === '0.0.0.0' || HOST === '::') throw new Error('A ponte não pode ser pública.');
 if (!/^https?:\/\/(127\.0\.0\.1|localhost)(?::\d+)?\/mcp\/assistente$/.test(MCP_URL)) {
   throw new Error('HABITS_MCP_URL precisa ser o endpoint local restrito do Habits.');
 }
+fs.mkdirSync(DIRETORIO_DE_SESSOES, { recursive: true, mode: 0o700 });
 
 function segredoConfere(recebido) {
   if (typeof recebido !== 'string') return false;
@@ -93,7 +98,9 @@ function executar(pedido) {
   return new Promise((resolve, reject) => {
     const inicio = Date.now();
     const filho = execFile(CLAUDE, args, {
-      cwd: diretorio,
+      // O arquivo de configuração continua efêmero, pois leva o JWT. Apenas o
+      // diretório de trabalho é estável para que `--resume` encontre a sessão.
+      cwd: DIRETORIO_DE_SESSOES,
       timeout: TIMEOUT_MS,
       maxBuffer: 8 * 1024 * 1024,
       env: {
