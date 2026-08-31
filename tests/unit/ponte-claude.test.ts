@@ -38,5 +38,7 @@ describe('ponte privada do Claude Code', () => {
     expect(unidade).toContain('EnvironmentFile=/etc/notaflow-agent.env');
     expect(unidade).toContain('EnvironmentFile=/etc/habits-claude-bridge.env');
     expect(unidade).toContain('Environment=HOME=/var/lib/nfagent');
+    expect(unidade).toContain('WorkingDirectory=/var/lib/nfagent/habits-claude-bridge');
+    expect(unidade).not.toContain('WorkingDirectory=/opt/habits');
   });
 });
