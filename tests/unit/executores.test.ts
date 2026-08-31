@@ -27,13 +27,16 @@ function arquivosDeCodigo(): string[] {
       const caminho = path.join(diretorio, entrada.name);
       if (entrada.isDirectory()) {
         percorrer(caminho);
-      } else if (entrada.name.endsWith('.ts') && !entrada.name.includes('.test.')) {
+      } else if (
+        (entrada.name.endsWith('.ts') || entrada.name.endsWith('.js')) &&
+        !entrada.name.includes('.test.')
+      ) {
         encontrados.push(caminho);
       }
     }
   };
 
-  for (const raiz of ['src', 'scripts']) {
+  for (const raiz of ['src', 'scripts', 'deploy']) {
     const completo = path.join(RAIZ, raiz);
     if (fs.existsSync(completo)) percorrer(completo);
   }
@@ -68,11 +71,12 @@ function ocorrencias(): { arquivo: string; construcao: string }[] {
       return !limpa.startsWith('//') && !limpa.startsWith('*') && !limpa.startsWith('/*');
     });
 
-    if (path.relative(RAIZ, caminho) === ARQUIVO_QUE_DECLARA_A_LISTA) continue;
+    const relativo = path.relative(RAIZ, caminho).replaceAll('\\', '/');
+    if (relativo === ARQUIVO_QUE_DECLARA_A_LISTA) continue;
 
     for (const construcao of CONSTRUCOES_QUE_CRIAM_EXECUTOR) {
       if (linhas.some((linha) => linha.includes(construcao))) {
-        achadas.push({ arquivo: path.relative(RAIZ, caminho), construcao });
+        achadas.push({ arquivo: relativo, construcao });
       }
     }
   }

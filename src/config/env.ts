@@ -131,6 +131,18 @@ const envSchema = z.object({
   CLAUDE_CLI_PATH: z.string().optional(),
 
   /**
+   * Ponte privada que alcança o Claude Code autenticado no host.
+   *
+   * O container não recebe o binário, o HOME nem a credencial do Claude Code.
+   * Ele só conversa com uma ponte HTTP ligada ao gateway privado do Docker. As
+   * duas variáveis são opcionais para que o restante da aplicação continue
+   * inicializando sem assistente (INV-15).
+   */
+  CLAUDE_BRIDGE_BASE_URL: z.string().url().optional().or(z.literal('')),
+  CLAUDE_BRIDGE_SECRET: z.string().min(32).optional().or(z.literal('')),
+  ASSISTANT_BRIDGE_TIMEOUT_MS: z.coerce.number().int().min(10_000).max(600_000).default(180_000),
+
+  /**
    * Teto de tempo do subprocesso.
    *
    * Medido: 9 a 46 segundos por pergunta, dependendo de quantas voltas de

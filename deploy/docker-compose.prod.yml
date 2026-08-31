@@ -1,0 +1,12 @@
+services:
+  api:
+    # Disponível somente no loopback do host para a ponte privada; Caddy não
+    # publica esta rota e nenhuma interface externa alcança o MCP diretamente.
+    ports:
+      - '127.0.0.1:3334:3333'
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      CLAUDE_CLI_PATH: ${CLAUDE_CLI_PATH:-}
+      CLAUDE_BRIDGE_BASE_URL: ${CLAUDE_BRIDGE_BASE_URL:?obrigatorio para o assistente}
+      CLAUDE_BRIDGE_SECRET: ${CLAUDE_BRIDGE_SECRET:?obrigatorio para o assistente}
+      ASSISTANT_BRIDGE_TIMEOUT_MS: ${ASSISTANT_BRIDGE_TIMEOUT_MS:-180000}

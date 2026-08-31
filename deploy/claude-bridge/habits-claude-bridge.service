@@ -1,0 +1,23 @@
+[Unit]
+Description=Ponte privada Habits para Claude Code
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nfagent
+Group=nfagent
+EnvironmentFile=/etc/habits-claude-bridge.env
+WorkingDirectory=/opt/habits/claude-bridge
+ExecStart=/usr/bin/node /opt/habits/claude-bridge/server.js
+Restart=always
+RestartSec=3
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/habits/claude-bridge
+MemoryMax=400M
+
+[Install]
+WantedBy=multi-user.target
